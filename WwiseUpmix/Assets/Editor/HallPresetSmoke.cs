@@ -17,6 +17,17 @@ public class HallPresetSmoke
         player.GetType().GetMethod(name, Flags).Invoke(player, args);
     private static object Field(object player, string name) => player.GetType().GetField(name, Flags).GetValue(player);
     private static void Require(bool value, string message) { if (!value) throw new Exception(message); }
+    private static uint[] PlaybackIds(SpatialStemPlayer player)
+    {
+        var stems = (Array)Field(player, "stems");
+        var ids = new uint[stems.Length];
+        for (int i = 0; i < ids.Length; i++)
+        {
+            object stem = stems.GetValue(i);
+            ids[i] = (uint)stem.GetType().GetField("playingId").GetValue(stem);
+        }
+        return ids;
+    }
     private static void Pump()
     {
         for (int i = 0; i < 8; i++) { AkSoundEngineController.Instance.LateUpdate(); Thread.Sleep(30); }
@@ -65,11 +76,11 @@ public class HallPresetSmoke
         var invalidEntries = (Array)invalid.GetType().GetField("objects").GetValue(invalid);
         var lastEntry = invalidEntries.GetValue(invalidEntries.Length - 1);
         lastEntry.GetType().GetField("sourceSong").SetValue(lastEntry, "UnknownSong");
-        var originalIds = (uint[])((uint[])Field(player, "playingIds")).Clone();
+        var originalIds = PlaybackIds(player);
         Require(!(bool)Call(player, "InstallLayout", invalid, song, false, true), "Invalid layout was accepted");
         Require(JsonUtility.ToJson(Call(player, "CaptureLayout")) == JsonUtility.ToJson(initial),
             "Rejected layout changed live objects");
-        var liveIds = (uint[])Field(player, "playingIds");
+        var liveIds = PlaybackIds(player);
         Require(originalIds.Length == liveIds.Length, "Rejected layout changed playback count");
         for (int i = 0; i < originalIds.Length; i++)
             Require(originalIds[i] == liveIds[i], "Rejected layout replaced a live playback ID");
@@ -114,6 +125,23 @@ public class HallPresetSmoke
         }
         finally { File.Delete(path); }
         Require((bool)Call(player, "InstallLayout", saved, song, false, true), "Round trip failed");
+        Pump();
+        uint[] beforeAppend = PlaybackIds(player);
+        var oneTrack = JsonUtility.FromJson(JsonUtility.ToJson(saved), saved.GetType());
+        var entriesField = oneTrack.GetType().GetField("objects");
+        var entries = (Array)entriesField.GetValue(oneTrack);
+        var single = Array.CreateInstance(entries.GetType().GetElementType(), 1);
+        single.SetValue(entries.GetValue(0), 0);
+        entriesField.SetValue(oneTrack, single);
+        Require((bool)Call(player, "InstallLayout", oneTrack, song, true, true), "Append failed");
+        var appended = PlaybackIds(player);
+        Require(appended.Length == beforeAppend.Length + 1 && appended[beforeAppend.Length] != 0,
+            "Appended emitter has no playback");
+        Call(player, "RemoveTrack", beforeAppend.Length);
+        var remaining = PlaybackIds(player);
+        Require(remaining.Length == beforeAppend.Length, "Removal changed track count");
+        for (int i = 0; i < remaining.Length; i++)
+            Require(remaining[i] == beforeAppend[i], "Append/remove replaced a neighboring playback ID");
         Pump();
         Call(player, "SetPaused", true);
         Require((bool)Call(player, "InstallLayout", saved, song, false, true), "Paused application failed");

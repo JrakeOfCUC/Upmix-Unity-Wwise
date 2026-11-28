@@ -36,6 +36,7 @@ public sealed partial class SpatialStemPlayer : MonoBehaviour
         [NonSerialized] public bool solo;
         [NonSerialized] public string label;
         [NonSerialized] public Song song;
+        [NonSerialized] public uint playingId;
         [NonSerialized] public Vector3 eqDb;
         [NonSerialized] public bool bypassEq;
         [NonSerialized] public float roomSend;
@@ -52,7 +53,7 @@ public sealed partial class SpatialStemPlayer : MonoBehaviour
     private const int PickerClosed = -2;
     private int picker = PickerClosed;
     private string switchError;
-    private uint[] playingIds;
+    private bool IsPlaying => catalog != null && Array.Exists(stems, stem => stem.playingId != 0);
     private bool paused;
     private int effectsRow = -1;
     private int roomPreset;
@@ -84,7 +85,6 @@ public sealed partial class SpatialStemPlayer : MonoBehaviour
         defaultLayout = CaptureLayout();
         initialMinimapRadius = minimapRadius;
         UpdateLayoutPath();
-        playingIds = new uint[stems.Length];
 #if UNITY_STANDALONE_OSX && !UNITY_EDITOR
         checkBank = LoadedSoundBank.Load("MTRX714_Check", out _);
         MixerOpen = true;
@@ -122,8 +122,8 @@ public sealed partial class SpatialStemPlayer : MonoBehaviour
 
     private int Position()
     {
-        foreach (uint id in playingIds)
-            if (id != 0 && AkUnitySoundEngine.GetSourcePlayPosition(id, out int ms) == AKRESULT.AK_Success)
+        foreach (Stem stem in stems)
+            if (stem.playingId != 0 && AkUnitySoundEngine.GetSourcePlayPosition(stem.playingId, out int ms) == AKRESULT.AK_Success)
                 return ms;
         return -1;
     }
@@ -146,28 +146,28 @@ public sealed partial class SpatialStemPlayer : MonoBehaviour
         return true;
     }
 
-    private static void StopIds(uint[] ids)
+    private static void StopStems(IEnumerable<Stem> tracks)
     {
-        foreach (uint id in ids)
-            if (id != 0) AkUnitySoundEngine.StopPlayingID(id);
+        foreach (Stem track in tracks)
+            if (track.playingId != 0) AkUnitySoundEngine.StopPlayingID(track.playingId);
     }
 
     private void PlayFromStart()
     {
         switchError = null;
-        uint[] next = new uint[stems.Length];
+        var next = (Stem[])stems.Clone();
         for (int i = 0; i < stems.Length; i++)
         {
             Song song = stems[i].song;
             if (EventFor(stems[i], song) == null) continue;
-            if (!LoadSong(song) || (next[i] = Post(stems[i], song)) == 0)
+            if (!LoadSong(song) || (next[i].playingId = Post(stems[i], song)) == 0)
             {
-                StopIds(next);
+                StopStems(next);
                 switchError = switchError ?? $"无法播放{stems[i].label}";
                 return;
             }
         }
-        playingIds = next;
+        stems = next;
         paused = false;
         ApplyMix();
     }
@@ -190,7 +190,7 @@ public sealed partial class SpatialStemPlayer : MonoBehaviour
             return;
         }
         if (!LoadSong(song)) return;
-        bool active = Array.Exists(playingIds, id => id != 0);
+        bool active = IsPlaying;
         int position = active ? Position() : 0;
         uint next = 0;
         if (position < 0 || position >= Songs[(int)song].DurationMs)
@@ -201,8 +201,8 @@ public sealed partial class SpatialStemPlayer : MonoBehaviour
 
         if (switchError == null)
         {
-            if (playingIds[target] != 0) AkUnitySoundEngine.StopPlayingID(playingIds[target]);
-            playingIds[target] = next;
+            if (stems[target].playingId != 0) AkUnitySoundEngine.StopPlayingID(stems[target].playingId);
+            stems[target].playingId = next;
             stems[target].song = song;
             ApplyMix();
         }
@@ -212,23 +212,23 @@ public sealed partial class SpatialStemPlayer : MonoBehaviour
 
     private void OnStemEnded(object cookie, AkCallbackType type, AkCallbackInfo info)
     {
-        if (!(info is AkEventCallbackInfo ended) || playingIds == null) return;
-        int index = Array.IndexOf(playingIds, ended.playingID);
-        if (index >= 0) playingIds[index] = 0;
+        if (!(info is AkEventCallbackInfo ended) || catalog == null) return;
+        int index = Array.FindIndex(stems, stem => stem.playingId == ended.playingID);
+        if (index >= 0) stems[index].playingId = 0;
     }
 
     private void SetPaused(bool pause)
     {
         var action = pause ? AkActionOnEventType.AkActionOnEventType_Pause
                            : AkActionOnEventType.AkActionOnEventType_Resume;
-        foreach (uint id in playingIds)
-            if (id != 0) AkUnitySoundEngine.ExecuteActionOnPlayingID(action, id);
+        foreach (Stem stem in stems)
+            if (stem.playingId != 0) AkUnitySoundEngine.ExecuteActionOnPlayingID(action, stem.playingId);
         paused = pause;
     }
 
     private void ApplyMix()
     {
-        if (playingIds == null || Camera.main == null) return;
+        if (catalog == null || Camera.main == null) return;
         var listener = Camera.main.gameObject;
         bool anySolo = Array.Exists(stems, stem => stem.solo && EventFor(stem, stem.song) != null);
         using (var send = new AkAuxSendArray())
@@ -297,7 +297,7 @@ public sealed partial class SpatialStemPlayer : MonoBehaviour
         var area = new Rect((Screen.width - width) / 2f, (Screen.height - height) / 2f, width, height);
         GUILayout.BeginArea(area, GUI.skin.window);
         GUILayout.Label("分轨混音    ·    Esc 返回场景");
-        bool active = playingIds != null && Array.Exists(playingIds, id => id != 0);
+        bool active = IsPlaying;
         bool wasEnabled = GUI.enabled;
 #if UNITY_STANDALONE_OSX && !UNITY_EDITOR
         outputSelector.Draw(checkId == 0);
@@ -319,7 +319,7 @@ public sealed partial class SpatialStemPlayer : MonoBehaviour
         }
 #endif
         GUILayout.BeginHorizontal();
-        GUI.enabled = wasEnabled && playingIds != null && (!active || paused);
+        GUI.enabled = wasEnabled && catalog != null && (!active || paused);
         if (GUILayout.Button("播放"))
         {
             if (active) SetPaused(false);
@@ -456,6 +456,7 @@ public sealed partial class SpatialStemPlayer : MonoBehaviour
             }
             stem.emitter = catalog[t].emitter;
             stem.song = source;
+            stem.playingId = 0;
             if (layout.version == 2) stem.muted = entry.muted;
             resolved[i] = stem;
         }
@@ -464,15 +465,15 @@ public sealed partial class SpatialStemPlayer : MonoBehaviour
 
     private bool InstallLayout(SpatialLayout layout, Song song, bool append, bool sync = true)
     {
-        var created = new List<Stem>();
-        var ids = new List<uint>();
+        Stem[] created = null;
         bool hadHall = hallReturns != null;
         try
         {
             Stem[] resolved = ResolveLayout(layout, song, sync);
+            created = new Stem[resolved.Length];
             if (!append && layout.version == 2 && layout.hallPreset && !PrepareHall())
                 throw new IOException(switchError);
-            bool active = Array.Exists(playingIds, id => id != 0);
+            bool active = IsPlaying;
             int ms = active && sync ? Position() : 0;
             for (int i = 0; i < resolved.Length; i++)
             {
@@ -481,18 +482,19 @@ public sealed partial class SpatialStemPlayer : MonoBehaviour
                 string evt = EventFor(stem, source);
                 if (evt != null && !LoadSong(source)) throw new IOException(switchError);
                 stem.emitter = Instantiate(stem.emitter, layout.objects[i].position, stem.emitter.transform.rotation, transform);
-                created.Add(stem);
+                created[i] = stem;
                 stem.emitter.SetActive(true);
-                uint id = 0;
-                bool posted = !active || evt == null || TryPostAt(stem, source, ms, out id);
-                ids.Add(id);
-                if (!posted) throw new IOException("无法将音源同步到当前播放位置。");
+                if (active && evt != null && !TryPostAt(stem, source, ms, out created[i].playingId))
+                    throw new IOException("无法将音源同步到当前播放位置。");
             }
         }
         catch (Exception ex)
         {
-            StopIds(ids.ToArray());
-            foreach (var s in created) Destroy(s.emitter);
+            if (created != null)
+            {
+                StopStems(created);
+                foreach (var stem in created) if (stem.emitter != null) Destroy(stem.emitter);
+            }
             if (!hadHall && hallReturns != null) DisposeHall();
             switchError = ex.Message;
             ReleaseUnusedBanks();
@@ -500,16 +502,16 @@ public sealed partial class SpatialStemPlayer : MonoBehaviour
         }
         if (append)
         {
-            created.InsertRange(0, stems);
-            ids.InsertRange(0, playingIds);
+            int previousCount = stems.Length;
+            Array.Resize(ref stems, previousCount + created.Length);
+            Array.Copy(created, 0, stems, previousCount, created.Length);
         }
         else
         {
-            StopIds(playingIds);
+            StopStems(stems);
             foreach (var s in stems) Retire(s);
+            stems = created;
         }
-        stems = created.ToArray();
-        playingIds = ids.ToArray();
         if (!append) SetHallActive(layout.version == 2 && layout.hallPreset);
         selected = append ? stems.Length - 1 : 0;
         RefreshObjects();
@@ -540,6 +542,17 @@ public sealed partial class SpatialStemPlayer : MonoBehaviour
 
 
 
+    private void RemoveTrack(int index)
+    {
+        if (stems[index].playingId != 0) AkUnitySoundEngine.StopPlayingID(stems[index].playingId);
+        Retire(stems[index]);
+        var objects = new List<Stem>(stems);
+        objects.RemoveAt(index);
+        stems = objects.ToArray();
+        selected = Mathf.Max(0, index - 1);
+        RefreshObjects();
+    }
+
     private void DrawEditor()
     {
         editorScroll = GUILayout.BeginScrollView(editorScroll);
@@ -566,16 +579,7 @@ public sealed partial class SpatialStemPlayer : MonoBehaviour
             emitter.position = new Vector3(Axis("X", p.x), Axis("Y", p.y), Axis("Z", p.z));
             if (GUILayout.Button("移除选中对象"))
             {
-                if (playingIds[selected] != 0) AkUnitySoundEngine.StopPlayingID(playingIds[selected]);
-                Retire(stems[selected]);
-                var objects = new List<Stem>(stems);
-                var ids = new List<uint>(playingIds);
-                objects.RemoveAt(selected);
-                ids.RemoveAt(selected);
-                stems = objects.ToArray();
-                playingIds = ids.ToArray();
-                selected = Mathf.Max(0, selected - 1);
-                RefreshObjects();
+                RemoveTrack(selected);
                 GUIUtility.ExitGUI();
             }
         }
@@ -624,7 +628,7 @@ public sealed partial class SpatialStemPlayer : MonoBehaviour
         if (initialized && checkId != 0) AkUnitySoundEngine.StopPlayingID(checkId);
         checkBank?.Dispose();
 #endif
-        if (initialized && playingIds != null) StopIds(playingIds);
+        if (initialized && catalog != null) StopStems(stems);
         foreach (Song song in new List<Song>(loadedBanks.Keys)) ReleaseBank(song);
     }
 #if UNITY_STANDALONE_OSX && !UNITY_EDITOR

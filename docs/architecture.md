@@ -48,3 +48,5 @@ SourceMap owns IMGUI map styles, listener-relative projection, numbering and leg
 LoadedSoundBank owns the success/borrow/failure interpretation and conditional unload for song, hall and macOS channel-check banks. HallSendBuffer cleanup now runs even after the sound engine has stopped. The native Windows test loaded an unused song bank twice, disposed the borrower, verified the bank was still loaded, then disposed the owner and verified a fresh load succeeded.
 
 Layout installation resolves every catalog reference, source song and position before creating native returns or posting audio. A Windows regression test initially failed on a layout whose final entry referenced an unknown song. It passed after the fix and verifies the original layout, ordered playback IDs and return resources on rejection.
+
+A live stem owns its Wwise playing ID. Layout append, removal, replacement, seek and end-of-event callbacks use this same record. The scene continues to serialize only the emitter and event name. The Windows smoke test confirms append/remove preserves all neighboring IDs.
