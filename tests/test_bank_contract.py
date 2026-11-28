@@ -4,6 +4,8 @@ import unittest
 from unittest.mock import patch
 import xml.etree.ElementTree as ET
 import build_song_banks as song
+from bank_publication import publish_banks
+from stem_effects import configure_effects
 from spatial_hall_banks import configure_spatial_hall
 
 def generate(build):
@@ -18,7 +20,7 @@ def generate(build):
         path.write_text(xml)
     sounds = ET.fromstring('<Sounds><Sound Name="Stem_Vocal"><PropertyList/><ActiveSourceList/></Sound></Sounds>')
     banks = ET.fromstring('<Banks><Bank Name="UpmixStems"><ObjectInclusionList/></Bank></Banks>')
-    song.configure_effects(build, sounds, banks)
+    configure_effects(build, sounds, banks)
     configure_spatial_hall(build, banks)
     return sounds, banks, ET.parse(build / 'Busses/Default Work Unit.wwu').getroot(), ET.parse(build / 'Game Parameters/Default Work Unit.wwu').getroot()
 
@@ -53,14 +55,14 @@ class PublishContract(unittest.TestCase):
             last = generated / 'Mac/SpatialHallPreset.bnk'
             last.write_bytes(b'x')
             with self.assertRaises(ValueError):
-                song.publish_banks(generated, destination, ['SpatialHallPreset'])
+                publish_banks(generated, destination, ['SpatialHallPreset'])
             self.assertFalse(destination.exists())
             last.write_bytes(bytes(100))
-            song.publish_banks(generated, destination, ['SpatialHallPreset'])
+            publish_banks(generated, destination, ['SpatialHallPreset'])
             meta = destination / 'Mac/SpatialHallPreset.bnk.meta'
             self.assertIn('guid:', meta.read_text())
             meta.write_text('existing metadata')
-            song.publish_banks(generated, destination, ['SpatialHallPreset'])
+            publish_banks(generated, destination, ['SpatialHallPreset'])
             self.assertEqual('existing metadata', meta.read_text())
 
 
@@ -81,10 +83,31 @@ class PublishContract(unittest.TestCase):
                 return replace(path, target)
 
             with patch.object(Path, 'replace', fail_on_mac), self.assertRaises(PermissionError):
-                song.publish_banks(generated, destination, [])
+                publish_banks(generated, destination, [])
             for platform in song.PLATFORMS:
                 self.assertEqual((destination / platform / 'Init.bnk').read_bytes(), b'old')
                 self.assertFalse((destination / platform / 'Init.bnk.meta').exists())
+
+
+    def test_locked_rollback_preserves_recovery_copy(self):
+        with tempfile.TemporaryDirectory() as root:
+            generated = Path(root) / 'generated'
+            destination = Path(root) / 'assets'
+            for platform in song.PLATFORMS:
+                for parent, payload in [(generated, b'new'), (destination, b'old')]:
+                    (parent / platform).mkdir(parents=True)
+                    (parent / platform / 'Init.bnk').write_bytes(payload)
+            replace = Path.replace
+
+            def deny_install_and_restore(path, target):
+                if target == destination / 'Mac/Init.bnk' or 'previous' in path.parts:
+                    raise PermissionError(target)
+                return replace(path, target)
+
+            with patch.object(Path, 'replace', deny_install_and_restore), self.assertRaisesRegex(RuntimeError, 'Backups:'):
+                publish_banks(generated, destination, [])
+            recovery, = Path(root).glob('.bank-recovery-*')
+            self.assertEqual((recovery / 'Windows/Init.bnk').read_bytes(), b'old')
 
 
 class BuildIsolationContract(unittest.TestCase):

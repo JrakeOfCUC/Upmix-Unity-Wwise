@@ -54,3 +54,5 @@ A live stem owns its Wwise playing ID. Layout append, removal, replacement, seek
 The mixer partial owns IMGUI events, picker and scroll state, and layout editor controls. MacOutputSelector owns channel-check playback and output selection. The transport owns pause policy. Unity built the macOS standalone application including Assembly-CSharp and the native plugin bundle, and the Windows Editor native smoke passed.
 
 stem_effects.py owns EQ RTPC names, frequencies, filter modes, gain limits and room presets. Its generated StemEffects.cs binds both mix controls and Wwise parameter writes. The final native smoke passed and all 20 generated banks again matched the original hardware checkout by SHA-256.
+
+bank_publication.py owns validation, metadata identity, installation and rollback. If a file lock also prevents rollback, the error names a .bank-recovery-* directory containing the original bytes. A fault-injection test covers this second failure.

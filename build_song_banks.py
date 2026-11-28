@@ -6,11 +6,11 @@ from pathlib import Path
 import shutil
 import subprocess
 import sys
-import tempfile
 import uuid
 import xml.etree.ElementTree as ET
 from wwise_work_unit import guid
 from stem_effects import configure_effects
+from bank_publication import PLATFORMS, publish_banks
 from hall_design import HALL_BANK
 from song_catalog import SONGS
 from spatial_hall_banks import configure_spatial_hall
@@ -18,7 +18,6 @@ from spatial_hall_banks import configure_spatial_hall
 ROOT = Path(__file__).resolve().parent
 BUILD = ROOT / 'WwiseUpmix/Library/SongBankBuild'
 DEST = ROOT / 'WwiseUpmix/Assets/StreamingAssets/Audio/GeneratedSoundBanks'
-PLATFORMS = ('Windows', 'Mac')
 
 
 def role_of(path):
@@ -135,66 +134,6 @@ def generate_and_publish(build, project_name, console, bank_names, destination):
     if result.returncode not in (0, 2):
         sys.exit(result.returncode)
     publish_banks(generated, destination, bank_names)
-
-
-def publish_banks(generated, destination, bank_names):
-    # Validate both platforms before replacing any playable banks.
-    for platform in PLATFORMS:
-        for bank in ['Init', *bank_names]:
-            path = generated / platform / (bank + '.bnk')
-            minimum = 1 if bank == 'Init' else 100 if bank == HALL_BANK else 1000000
-            if path.stat().st_size < minimum:
-                raise ValueError(f'Incomplete SoundBank: {path}')
-
-    # Complete every copy before installing files, so a read error or full disk leaves
-    # the existing playable set intact. Stage on the destination volume for os.replace.
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    with tempfile.TemporaryDirectory(dir=destination.parent, prefix='.bank-publish-') as temp:
-        stage = Path(temp)
-        for platform in PLATFORMS:
-            folder = stage / platform
-            folder.mkdir()
-            target = destination / platform
-            template = target / 'UpmixStems.bnk.meta'
-            for bank in ['Init', *bank_names]:
-                name = bank + '.bnk'
-                shutil.copyfile(generated / platform / name, folder / name)
-                if (target / (name + '.meta')).exists():
-                    continue
-                lines = template.read_text().splitlines() if template.exists() else [
-                    'fileFormatVersion: 2', '', 'DefaultImporter:', '  externalObjects: {}',
-                    '  userData:', '  assetBundleName:', '  assetBundleVariant:',
-                ]
-                lines[1] = 'guid: ' + uuid.uuid5(uuid.NAMESPACE_URL, platform + '/' + bank).hex
-                (folder / (name + '.meta')).write_text('\n'.join(lines) + '\n')
-        installed = []
-        try:
-            for platform in PLATFORMS:
-                target = destination / platform
-                target.mkdir(parents=True, exist_ok=True)
-                backup = stage / 'previous' / platform
-                backup.mkdir(parents=True)
-                # Install importer metadata before Unity discovers new bank files.
-                for file in sorted((stage / platform).iterdir(), key=lambda p: p.suffix != '.meta'):
-                    live = target / file.name
-                    previous = None
-                    if live.exists():
-                        if file.suffix == '.meta':
-                            continue
-                        previous = backup / file.name
-                        try:
-                            os.link(live, previous)
-                        except OSError:
-                            shutil.copyfile(live, previous)
-                    file.replace(live)
-                    installed.append((live, previous))
-        except BaseException:
-            for live, previous in reversed(installed):
-                if previous is None:
-                    live.unlink()
-                else:
-                    previous.replace(live)
-            raise
 
 
 if __name__ == '__main__':
