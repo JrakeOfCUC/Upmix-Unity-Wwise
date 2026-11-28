@@ -37,3 +37,27 @@ class BankContract(unittest.TestCase):
             bus = buses.find(f".//AuxBus[@ID='{ref.get('ID')}']")
             effect = bus.find("ObjectLists/ObjectList[@Name='Effects']/EffectSlot/ReferenceList/Reference[@Name='Effect']/Custom/Effect")
             self.assertEqual(effect.get('Name'), ref.get('Name') + '_Effect')
+
+
+class PublishContract(unittest.TestCase):
+    def test_clean_checkout_retry_and_existing_meta(self):
+        with tempfile.TemporaryDirectory() as root:
+            generated = Path(root) / 'generated'
+            destination = Path(root) / 'assets'
+            for platform in song.PLATFORMS:
+                folder = generated / platform
+                folder.mkdir(parents=True)
+                (folder / 'Init.bnk').write_bytes(b'init')
+                (folder / 'SpatialHallPreset.bnk').write_bytes(bytes(100))
+            last = generated / 'Mac/SpatialHallPreset.bnk'
+            last.write_bytes(b'x')
+            with self.assertRaises(ValueError):
+                song.publish_banks(generated, destination, ['SpatialHallPreset'])
+            self.assertFalse(destination.exists())
+            last.write_bytes(bytes(100))
+            song.publish_banks(generated, destination, ['SpatialHallPreset'])
+            meta = destination / 'Mac/SpatialHallPreset.bnk.meta'
+            self.assertIn('guid:', meta.read_text())
+            meta.write_text('existing metadata')
+            song.publish_banks(generated, destination, ['SpatialHallPreset'])
+            self.assertEqual('existing metadata', meta.read_text())

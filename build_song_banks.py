@@ -12,6 +12,7 @@ from spatial_hall_banks import configure_spatial_hall
 ROOT = Path(__file__).resolve().parent
 BUILD = ROOT / 'WwiseUpmix/Library/SongBankBuild'
 DEST = ROOT / 'WwiseUpmix/Assets/StreamingAssets/Audio/GeneratedSoundBanks'
+PLATFORMS = ('Windows', 'Mac')
 SONGS = {
     'SeeYouAgain': 'See You Again', 'GloriousYears': '光辉岁月',
     'SmokeOnTheWater': 'Smoke on the Water', 'FiveHundredMiles': 'Five Hundred Miles',
@@ -164,21 +165,37 @@ def build_song_banks(source, console):
     for tree, path in zip(trees, units):
         tree.write(path, encoding='utf-8', xml_declaration=True)
     result = subprocess.run([str(console), 'generate-soundbank', str(BUILD / source.name),
-                             '--platform', 'Windows', 'Mac', '--bank', *bank_names])
+                             '--platform', *PLATFORMS, '--bank', *bank_names])
     if result.returncode not in (0, 2):
         sys.exit(result.returncode)
-    for platform in ('Windows', 'Mac'):
-        shutil.copyfile(BUILD / 'GeneratedSoundBanks' / platform / 'Init.bnk', DEST / platform / 'Init.bnk')
-        for bank in bank_names:
-            file = BUILD / 'GeneratedSoundBanks' / platform / (bank + '.bnk')
-            if file.stat().st_size < (100 if bank == 'SpatialHallPreset' else 1000000):
-                raise ValueError(f'Missing embedded audio: {file}')
-            shutil.copyfile(file, DEST / platform / file.name)
-            meta = DEST / platform / (file.name + '.meta')
-            if not meta.exists():
-                lines = (meta.parent / 'UpmixStems.bnk.meta').read_text().splitlines()
-                lines[1] = 'guid: ' + uuid.uuid5(uuid.NAMESPACE_URL, platform + '/' + bank).hex
-                meta.write_text('\n'.join(lines) + '\n')
+    publish_banks(BUILD / 'GeneratedSoundBanks', DEST, bank_names)
+
+
+def publish_banks(generated, destination, bank_names):
+    # Validate both platforms before replacing any playable banks.
+    for platform in PLATFORMS:
+        for bank in ['Init', *bank_names]:
+            path = generated / platform / (bank + '.bnk')
+            minimum = 1 if bank == 'Init' else 100 if bank == 'SpatialHallPreset' else 1000000
+            if path.stat().st_size < minimum:
+                raise ValueError(f'Incomplete SoundBank: {path}')
+
+    for platform in PLATFORMS:
+        folder = destination / platform
+        folder.mkdir(parents=True, exist_ok=True)
+        template = folder / 'UpmixStems.bnk.meta'
+        for bank in ['Init', *bank_names]:
+            name = bank + '.bnk'
+            shutil.copyfile(generated / platform / name, folder / name)
+            meta = folder / (name + '.meta')
+            if meta.exists():
+                continue
+            lines = template.read_text().splitlines() if template.exists() else [
+                'fileFormatVersion: 2', '', 'DefaultImporter:', '  externalObjects: {}',
+                '  userData:', '  assetBundleName:', '  assetBundleVariant:',
+            ]
+            lines[1] = 'guid: ' + uuid.uuid5(uuid.NAMESPACE_URL, platform + '/' + bank).hex
+            meta.write_text('\n'.join(lines) + '\n')
 
 
 if __name__ == '__main__':
