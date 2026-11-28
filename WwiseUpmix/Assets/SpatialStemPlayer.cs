@@ -142,16 +142,22 @@ public sealed partial class SpatialStemPlayer : MonoBehaviour
         return -1;
     }
 
-    private uint Post(int index, Song song)
-    {
-        return Post(stems[index], song);
-    }
-
     private uint Post(Stem stem, Song song)
     {
         return AkUnitySoundEngine.PostEvent(EventFor(stem, song), stem.emitter,
             (uint)AkCallbackType.AK_EndOfEvent,
             OnStemEnded, null);
+    }
+
+    // The caller owns any nonzero ID, including a post whose seek failed.
+    private bool TryPostAt(Stem stem, Song song, int position, out uint id)
+    {
+        id = Post(stem, song);
+        if (id == 0 || position < 0 || position >= Songs[(int)song].DurationMs) return false;
+        if (position > 0 && AkUnitySoundEngine.SeekOnEvent(EventFor(stem, song),
+                stem.emitter, position, false, id) != AKRESULT.AK_Success) return false;
+        if (paused) AkUnitySoundEngine.ExecuteActionOnPlayingID(AkActionOnEventType.AkActionOnEventType_Pause, id);
+        return true;
     }
 
     private static void StopIds(uint[] ids)
@@ -168,7 +174,7 @@ public sealed partial class SpatialStemPlayer : MonoBehaviour
         {
             Song song = stems[i].song;
             if (EventFor(stems[i], song) == null) continue;
-            if (!LoadSong(song) || (next[i] = Post(i, song)) == 0)
+            if (!LoadSong(song) || (next[i] = Post(stems[i], song)) == 0)
             {
                 StopIds(next);
                 switchError = switchError ?? $"无法播放{stems[i].label}";
@@ -199,38 +205,23 @@ public sealed partial class SpatialStemPlayer : MonoBehaviour
         }
         if (!LoadSong(song)) return;
         bool active = Array.Exists(playingIds, id => id != 0);
-        int position = active && target != WholeSong ? Position() : 0;
-        uint[] next = new uint[stems.Length];
+        int position = active ? Position() : 0;
+        uint next = 0;
         if (position < 0 || position >= Songs[(int)song].DurationMs)
             switchError = "无法在当前播放位置接入这条分轨。";
-        for (int i = 0; active && switchError == null && i < stems.Length; i++)
-        {
-            if (target != WholeSong && target != i) continue;
-            string evt = EventFor(stems[i], song);
-            if (evt == null) continue;
-            uint id = next[i] = Post(i, song);
-            if (id == 0 || (position > 0 && AkUnitySoundEngine.SeekOnEvent(evt,
-                    stems[i].emitter, position, false, id) != AKRESULT.AK_Success))
-                switchError = $"无法切换{stems[i].label}。";
-            else if (paused)
-                AkUnitySoundEngine.ExecuteActionOnPlayingID(AkActionOnEventType.AkActionOnEventType_Pause, id);
-        }
+        else if (active && EventFor(stems[target], song) != null &&
+                 !TryPostAt(stems[target], song, position, out next))
+            switchError = $"无法切换{stems[target].label}。";
 
         if (switchError == null)
         {
-            for (int i = 0; i < stems.Length; i++)
-            {
-                if (target != WholeSong && target != i) continue;
-                if (playingIds[i] != 0) AkUnitySoundEngine.StopPlayingID(playingIds[i]);
-                playingIds[i] = next[i];
-                stems[i].song = song;
-            }
+            if (playingIds[target] != 0) AkUnitySoundEngine.StopPlayingID(playingIds[target]);
+            playingIds[target] = next;
+            stems[target].song = song;
             ApplyMix();
         }
-        else StopIds(next);
-
-        foreach (Song bank in new List<Song>(loadedBanks.Keys))
-            if (!Array.Exists(stems, stem => stem.song == bank)) ReleaseBank(bank);
+        else if (next != 0) AkUnitySoundEngine.StopPlayingID(next);
+        ReleaseUnusedBanks();
     }
 
     private void OnStemEnded(object cookie, AkCallbackType type, AkCallbackInfo info)
@@ -556,15 +547,10 @@ public sealed partial class SpatialStemPlayer : MonoBehaviour
                 stem.emitter = Instantiate(stem.emitter, entry.position, stem.emitter.transform.rotation, transform);
                 stem.emitter.SetActive(true);
                 created.Add(stem);
-                uint id = active && evt != null ? Post(stem, source) : 0;
+                uint id = 0;
+                bool posted = !active || evt == null || TryPostAt(stem, source, ms, out id);
                 ids.Add(id);
-                if (active && evt != null)
-                {
-                    if (id == 0 || ms < 0 || ms >= Songs[(int)source].DurationMs || (ms > 0 &&
-                        AkUnitySoundEngine.SeekOnEvent(evt, stem.emitter, ms, false, id) != AKRESULT.AK_Success))
-                        throw new IOException("无法将音源同步到当前播放位置。");
-                    if (paused) AkUnitySoundEngine.ExecuteActionOnPlayingID(AkActionOnEventType.AkActionOnEventType_Pause, id);
-                }
+                if (!posted) throw new IOException("无法将音源同步到当前播放位置。");
             }
         }
         catch (Exception ex)

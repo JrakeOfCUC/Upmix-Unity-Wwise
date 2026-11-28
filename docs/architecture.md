@@ -40,3 +40,5 @@ The inspected application entry points expose local files and native audio servi
 The song catalog build used the source Ambisonics project, local stems and WwiseConsole 2025.1.8. All 20 published Windows/Mac banks matched the prior device outputs by SHA-256 (5,751,173,364 bytes). macOS playback requires its own runtime check.
 
 SpatialLayout owns the v1/v2 field schema, per-song filename and atomic file replacement. The player owns validation against the live catalog, installation, synchronization and rollback. The Windows Unity 2022.3.62f3c1 HallPresetSmoke test passed with file creation, replacement and reload as well as legacy restore. Run the Editor with -batchmode -nographics -wwiseEnableWithNoGraphics -runTests -testPlatform EditMode -testFilter HallPresetSmoke -projectPath <project> -testResults <xml>. Provision native Wwise plugin DLLs with their import metadata and Windows banks first.
+
+Single-track switching now replaces just the selected playing ID. It shares post/seek/pause and unused-bank cleanup with layout installation. The Windows smoke test exercises a paused track replacement and checks its neighbor before the full-song switch.
