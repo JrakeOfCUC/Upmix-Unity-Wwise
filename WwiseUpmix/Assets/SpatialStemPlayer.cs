@@ -44,10 +44,7 @@ public sealed partial class SpatialStemPlayer : MonoBehaviour
     [SerializeField] private Stem[] stems;
     [SerializeField, Min(0.1f), InspectorName("小地图半径（米）")]
     private float minimapRadius = 6f;
-    private GUIStyle mapText;
-    private GUIStyle mapMarker;
-    private string[] markerNumbers;
-    private string[] legendNames;
+    private readonly SourceMap sourceMap = new SourceMap();
     public bool MixerOpen { get; set; }
     private Vector2 mixerScroll;
     private readonly Dictionary<Song, uint> loadedBanks = new Dictionary<Song, uint>();
@@ -76,18 +73,15 @@ public sealed partial class SpatialStemPlayer : MonoBehaviour
 
     private void Start()
     {
-        markerNumbers = new string[stems.Length];
-        legendNames = new string[stems.Length];
         for (int i = 0; i < stems.Length; i++)
         {
             var marker = stems[i].emitter.GetComponentInChildren<SpatialStemLabel>();
             stems[i].label = marker != null ? marker.DisplayName : stems[i].emitter.name;
             stems[i].song = startupSong;
             stems[i].roomSend = 0.12f;
-            markerNumbers[i] = (i + 1).ToString();
-            legendNames[i] = markerNumbers[i] + "  " + stems[i].label;
         }
 
+        sourceMap.Refresh(stems);
         catalog = (Stem[])stems.Clone();
         layoutSong = startupSong;
         defaultLayout = CaptureLayout();
@@ -292,76 +286,11 @@ public sealed partial class SpatialStemPlayer : MonoBehaviour
         return next;
     }
 
-    private static void MapRect(Rect rect, Color tint)
-    {
-        GUI.color = tint;
-        GUI.DrawTexture(rect, Texture2D.whiteTexture);
-        GUI.color = Color.white;
-    }
-
-    private void DrawMinimap()
-    {
-        if (Event.current.type != EventType.Repaint || legendNames == null) return;
-        Camera camera = Camera.main;
-        if (camera == null) return;
-        if (mapText == null)
-        {
-            mapText = new GUIStyle(GUI.skin.label) { fontSize = 12, padding = new RectOffset() };
-            mapText.normal.textColor = Color.white;
-            mapMarker = new GUIStyle(mapText) { alignment = TextAnchor.MiddleCenter, fontStyle = FontStyle.Bold };
-        }
-
-        const float size = 184f;
-        float height = size + 28f + 17f * ((stems.Length + 1) / 2);
-        float scale = Mathf.Min(1f, (Screen.width - 12f) / size, (Screen.height - 12f) / height);
-        if (scale <= 0f) return;
-        Matrix4x4 previousMatrix = GUI.matrix;
-        Color previousColor = GUI.color;
-        int previousDepth = GUI.depth;
-        GUI.depth = -50;
-        GUI.matrix = Matrix4x4.TRS(new Vector3(Screen.width - size * scale - 6f,
-            Screen.height - height * scale - 6f, 0), Quaternion.identity, new Vector3(scale, scale, 1));
-        MapRect(new Rect(0, 0, size, height), new Color(0.04f, 0.08f, 0.11f, 0.92f));
-        float range = Mathf.Max(0.1f, minimapRadius);
-        GUI.Label(new Rect(8, 4, size - 16, 18), $"音源方位   ·   {range:0.#} m", mapText);
-
-        Vector2 center = new Vector2(size / 2, 24 + size / 2);
-        float radius = size / 2 - 10;
-        var grid = new Color(0.27f, 0.38f, 0.42f);
-        MapRect(new Rect(center.x - radius, center.y, 2 * radius, 1), grid);
-        MapRect(new Rect(center.x, center.y - radius, 1, 2 * radius), grid);
-        Quaternion heading = Quaternion.Euler(0, -camera.transform.eulerAngles.y, 0);
-        var ink = new Color(0.10f, 0.42f, 0.47f);
-        for (int i = 0; i < stems.Length; i++)
-        {
-            var emitter = stems[i].emitter;
-            if (emitter == null || !emitter.activeInHierarchy) continue;
-            Vector3 offset = heading * (emitter.transform.position - camera.transform.position);
-            Vector2 ground = new Vector2(offset.x, -offset.z);
-            if (ground.sqrMagnitude > range * range) continue;
-            Vector2 point = center + ground * (radius / range);
-            var badge = new Rect(point.x - 6, point.y - 7, 12, 14);
-            MapRect(badge, ink);
-            GUI.Label(badge, markerNumbers[i], mapMarker);
-        }
-        // Small upward chevron marks the listener and its forward direction.
-        var listener = new Color(1f, 0.78f, 0.35f);
-        for (int y = 0; y < 4; y++)
-            MapRect(new Rect(center.x - y, center.y - 3 + y, 1 + 2 * y, 1), listener);
-        for (int i = 0; i < legendNames.Length; i++)
-            GUI.Label(new Rect(8 + (i % 2) * size / 2, size + 24 + (i / 2) * 17,
-                size / 2 - 8, 17), legendNames[i], mapText);
-        DrawHallMap(camera, center, radius, range, heading);
-        GUI.matrix = previousMatrix;
-        GUI.color = previousColor;
-        GUI.depth = previousDepth;
-    }
-
     private void OnGUI()
     {
         if (!MixerOpen)
         {
-            DrawMinimap();
+            sourceMap.Draw(stems, minimapRadius, hallPreset);
             return;
         }
         int previousDepth = GUI.depth;
@@ -593,13 +522,7 @@ public sealed partial class SpatialStemPlayer : MonoBehaviour
 
     private void RefreshObjects()
     {
-        markerNumbers = new string[stems.Length];
-        legendNames = new string[stems.Length];
-        for (int i = 0; i < stems.Length; i++)
-        {
-            markerNumbers[i] = (i + 1).ToString();
-            legendNames[i] = markerNumbers[i] + "  " + stems[i].label;
-        }
+        sourceMap.Refresh(stems);
         effectsRow = -1;
         picker = PickerClosed;
         switchError = null;
@@ -629,7 +552,7 @@ public sealed partial class SpatialStemPlayer : MonoBehaviour
         GUILayout.Label($"空间对象（{stems.Length}）");
         if (stems.Length > 0)
         {
-            selected = GUILayout.SelectionGrid(selected, legendNames, 4);
+            selected = GUILayout.SelectionGrid(selected, sourceMap.Legend, 4);
             Transform emitter = stems[selected].emitter.transform;
             Vector3 p = emitter.position;
             emitter.position = new Vector3(Axis("X", p.x), Axis("Y", p.y), Axis("Z", p.z));

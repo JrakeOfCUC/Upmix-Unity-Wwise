@@ -100,19 +100,6 @@ public sealed partial class SpatialStemPlayer
         return hallSends.Apply(emitter, gain > 0 ? hallReturns.Length : 0);
     }
 
-    private void DrawHallMap(Camera camera, Vector2 center, float radius, float range, Quaternion heading)
-    {
-        if (!hallPreset) return;
-        for (int i = 0; i < HallReturns.Length; i++)
-        {
-            Vector3 p = heading * (HallReturns[i].Position - camera.transform.position);
-            if (new Vector2(p.x, p.z).sqrMagnitude > range * range) continue;
-            Vector2 point = center + new Vector2(p.x, -p.z) * (radius / range);
-            MapRect(new Rect(point.x - 8, point.y - 7, 16, 14), i < 2 ? new Color(.65f,.36f,.08f) : new Color(.4f,.28f,.65f));
-            GUI.Label(new Rect(point.x - 8, point.y - 7, 16, 14), HallReturns[i].Marker, mapMarker);
-        }
-    }
-
     private void DisposeHall()
     {
         hallSends?.Dispose();
