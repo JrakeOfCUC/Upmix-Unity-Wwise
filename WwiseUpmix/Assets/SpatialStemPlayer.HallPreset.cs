@@ -21,28 +21,6 @@ public sealed partial class SpatialStemPlayer
         return new SpatialLayout { version = 2, song = song.ToString(), objects = entries, hallPreset = true };
     }
 
-    private void DrawHallPresetControls()
-    {
-        GUILayout.Label("位置预设（替换当前对象，可恢复初始布局）");
-        GUILayout.BeginHorizontal();
-        if (GUILayout.Button("应用音乐厅 B"))
-        {
-            InstallLayout(MakeHallLayout(layoutSong), layoutSong, false);
-            GUIUtility.ExitGUI();
-        }
-        if (GUILayout.Button("恢复初始布局"))
-        {
-            var layout = new SpatialLayout { version = 2, song = layoutSong.ToString(),
-                objects = Array.ConvertAll(defaultLayout.objects, e => new SpatialLayout.Entry {
-                    track = e.track, sourceSong = layoutSong.ToString(), position = e.position }) };
-            InstallLayout(layout, layoutSong, false);
-            GUIUtility.ExitGUI();
-        }
-        GUILayout.EndHorizontal();
-        GUILayout.Label(hallPreset ? "当前：音乐厅 B · 器乐默认静音 · 8 个固定空间返回" : "当前：普通布局");
-        if (hallPreset) GUILayout.Label("E1/E2：侧前反射；R1—R4：侧后混响；R5/R6：上方混响");
-    }
-
     private bool PrepareHall()
     {
         if (hallReturns != null) return true;

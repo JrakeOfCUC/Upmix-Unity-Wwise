@@ -50,3 +50,5 @@ LoadedSoundBank owns the success/borrow/failure interpretation and conditional u
 Layout installation resolves every catalog reference, source song and position before creating native returns or posting audio. A Windows regression test initially failed on a layout whose final entry referenced an unknown song. It passed after the fix and verifies the original layout, ordered playback IDs and return resources on rejection.
 
 A live stem owns its Wwise playing ID. Layout append, removal, replacement, seek and end-of-event callbacks use this same record. The scene continues to serialize only the emitter and event name. The Windows smoke test confirms append/remove preserves all neighboring IDs.
+
+The mixer partial owns IMGUI events, picker and scroll state, and layout editor controls. MacOutputSelector owns channel-check playback and output selection. The transport owns pause policy. Unity built the macOS standalone application including Assembly-CSharp and the native plugin bundle, and the Windows Editor native smoke passed.

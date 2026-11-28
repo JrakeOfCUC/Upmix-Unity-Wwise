@@ -4,7 +4,7 @@ using System.Collections.Generic;
 using System.Runtime.InteropServices;
 using UnityEngine;
 
-internal sealed class MacOutputSelector
+internal sealed class MacOutputSelector : IDisposable
 {
     // The native Wwise count is in/out. The generated C# overload exposes it as out only.
     [DllImport("AkUnitySoundEngine", EntryPoint = "CSharp_GetDeviceList__SWIG_0")]
@@ -20,6 +20,50 @@ internal sealed class MacOutputSelector
     private string status = "查询中…";
     private ulong outputId;
     private float nextQuery;
+
+    private LoadedSoundBank checkBank;
+    private uint checkId;
+    private float checkStarted;
+    private static readonly string[] CheckChannels =
+        { "L", "R", "C", "LFE", "Lrs", "Rrs", "Ls", "Rs", "Ltf", "Rtf", "Ltr", "Rtr" };
+
+    public void Initialize()
+    {
+        checkBank = LoadedSoundBank.Load("MTRX714_Check", out _);
+    }
+
+    public void Dispose()
+    {
+        if (checkId != 0 && AkUnitySoundEngine.IsInitialized()) AkUnitySoundEngine.StopPlayingID(checkId);
+        checkBank?.Dispose();
+    }
+
+    private void OnCheckEnded(object cookie, AkCallbackType type, AkCallbackInfo info)
+    {
+        if (info is AkEventCallbackInfo ended && ended.playingID == checkId) checkId = 0;
+    }
+
+    public bool Draw(Action beforeCheck)
+    {
+        DrawDevicePicker(checkId == 0);
+        bool wasEnabled = GUI.enabled;
+        GUI.enabled = wasEnabled && checkBank != null && checkId == 0;
+        if (GUILayout.Button("测试 12 路音箱 · 每秒一路"))
+        {
+            beforeCheck();
+            checkStarted = Time.realtimeSinceStartup;
+            checkId = AkUnitySoundEngine.PostEvent("Play_MTRX714_Check", Camera.main.gameObject,
+                (uint)AkCallbackType.AK_EndOfEvent, OnCheckEnded, null);
+        }
+        GUI.enabled = wasEnabled;
+        if (checkBank == null) GUILayout.Label("测试音库未加载");
+        if (checkId != 0)
+        {
+            int index = Mathf.Clamp((int)(Time.realtimeSinceStartup - checkStarted), 0, CheckChannels.Length - 1);
+            GUILayout.Label($"测试 {index + 1}/{CheckChannels.Length}   {CheckChannels[index]}");
+        }
+        return checkId == 0;
+    }
 
     private void Refresh()
     {
@@ -67,7 +111,7 @@ internal sealed class MacOutputSelector
         }
     }
 
-    public void Draw(bool canSwitch)
+    private void DrawDevicePicker(bool canSwitch)
     {
         if (Time.unscaledTime >= nextQuery && AkUnitySoundEngine.IsInitialized())
         {
