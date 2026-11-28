@@ -11,6 +11,7 @@ import uuid
 import xml.etree.ElementTree as ET
 from wwise_work_unit import guid
 from stem_effects import configure_effects
+from hall_design import HALL_BANK
 from song_catalog import SONGS
 from spatial_hall_banks import configure_spatial_hall
 
@@ -117,7 +118,7 @@ def prepare_project(source):
         banks.append(bank)
     configure_effects(BUILD, sounds, banks)
     configure_spatial_hall(BUILD, banks)
-    bank_names.append('SpatialHallPreset')
+    bank_names.append(HALL_BANK)
     for tree, path in zip(trees, units):
         tree.write(path, encoding='utf-8', xml_declaration=True)
     return bank_names
@@ -141,7 +142,7 @@ def publish_banks(generated, destination, bank_names):
     for platform in PLATFORMS:
         for bank in ['Init', *bank_names]:
             path = generated / platform / (bank + '.bnk')
-            minimum = 1 if bank == 'Init' else 100 if bank == 'SpatialHallPreset' else 1000000
+            minimum = 1 if bank == 'Init' else 100 if bank == HALL_BANK else 1000000
             if path.stat().st_size < minimum:
                 raise ValueError(f'Incomplete SoundBank: {path}')
 

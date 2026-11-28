@@ -89,7 +89,7 @@ public sealed partial class SpatialStemPlayer
                 for (int i = 0; i < HallReturns.Length; i++)
                 {
                     if (!Project(HallReturns[i].Position, out Vector2 point)) continue;
-                    MapRect(new Rect(point.x - 8, point.y - 7, 16, 14), i < 2 ? new Color(.65f,.36f,.08f) : new Color(.4f,.28f,.65f));
+                    MapRect(new Rect(point.x - 8, point.y - 7, 16, 14), HallReturns[i].Early ? new Color(.65f,.36f,.08f) : new Color(.4f,.28f,.65f));
                     GUI.Label(new Rect(point.x - 8, point.y - 7, 16, 14), HallReturns[i].Marker, mapMarker);
                 }
             }

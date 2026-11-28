@@ -1,6 +1,7 @@
 """Create the media-free SpatialHallPreset bank in the generated Wwise project."""
 import copy
 import xml.etree.ElementTree as ET
+from hall_design import HALL_BANK, RETURNS, bus_name
 from wwise_work_unit import guid, effect_slot
 
 
@@ -17,25 +18,26 @@ def configure_spatial_hall(build, banks):
     assert children is not None, 'Run configure_effects first'
     factory = ET.parse(build / 'Effects/Factory Effects.wwu')
     bank = copy.deepcopy(banks[0])
-    bank.attrib.update(Name='SpatialHallPreset', ID=guid('spatial-hall/bank'))
+    bank.attrib.update(Name=HALL_BANK, ID=guid('spatial-hall/bank'))
     inclusions = bank.find('ObjectInclusionList')
     inclusions.clear()
     banks.append(bank)
-    for i in range(8):
-        name = f'SpatialHall_{i}'
+    for i, node in enumerate(RETURNS):
+        name = bus_name(i)
+        early = node['layer'] == 'early'
         bus = ET.SubElement(children, 'AuxBus', Name=name, ID=guid('spatial-hall/' + name))
         properties = ET.SubElement(bus, 'PropertyList')
         prop(properties, 'ListenerRelativeRouting', 'bool', 'True')
         prop(properties, '3DSpatialization', 'int16', 1)
         prop(properties, 'BusChannelConfig', 'int32', 16641)  # mono, per WObjects.xml
-        effect = copy.deepcopy(factory.find(".//Effect[@PluginName='Wwise Delay']") if i < 2
+        effect = copy.deepcopy(factory.find(".//Effect[@PluginName='Wwise Delay']") if early
                                else factory.find(".//Effect[@Name='Hall_Medium'][@PluginName='Wwise RoomVerb']"))
         assert effect is not None
         effect.attrib.update(Name=name + '_Effect', ID=guid('spatial-hall/' + name + '/effect'))
         props = effect.find('PropertyList')
         if props is None:
             props = ET.SubElement(effect, 'PropertyList')
-        if i < 2:
+        if early:
             prop(props, 'DelayTime', 'Real32', (.029, .037)[i])
             prop(props, 'FeedbackEnabled', 'bool', 'False')
             prop(props, 'WetDryMix', 'Real32', 100)

@@ -4,8 +4,6 @@ using UnityEngine;
 
 public sealed partial class SpatialStemPlayer
 {
-    // Energy-normalized late sends (four side/rear + two quieter height returns).
-    private static readonly float[] HallReturnGains = { .7f, .7f, .45f, .45f, .45f, .45f, .3f, .3f };
     private bool hallPreset;
     private LoadedSoundBank hallBank;
     private float initialMinimapRadius;
@@ -25,7 +23,7 @@ public sealed partial class SpatialStemPlayer
     {
         if (hallReturns != null) return true;
         if (Camera.main == null) { switchError = "未找到主摄像机。"; return false; }
-        hallBank = LoadedSoundBank.Load("SpatialHallPreset", out var result);
+        hallBank = LoadedSoundBank.Load(HallBankName, out var result);
         if (hallBank == null)
         {
             switchError = "音乐厅预设音库未就绪，请重新生成 SoundBank：" + result;
@@ -73,7 +71,7 @@ public sealed partial class SpatialStemPlayer
     {
         if (hallReturns == null || hallSends == null) return AKRESULT.AK_Fail;
         for (int i = 0; i < hallReturns.Length; i++)
-            hallSends.Set(i, hallReturns[i], AkUnitySoundEngine.GetIDFromString("SpatialHall_" + i), gain * HallReturnGains[i]);
+            hallSends.Set(i, hallReturns[i], AkUnitySoundEngine.GetIDFromString(HallReturns[i].Bus), gain * HallReturns[i].Gain);
         return hallSends.Apply(emitter, gain > 0 ? hallReturns.Length : 0);
     }
 

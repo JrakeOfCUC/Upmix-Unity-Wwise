@@ -1,6 +1,6 @@
 """Rebuild the design-only coordinate manifest and figures; requires matplotlib/numpy."""
-from hall_design import objects, write_generated
 from pathlib import Path
+import sys
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
@@ -8,6 +8,9 @@ from matplotlib.patches import Rectangle, Circle
 from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 
 OUT = Path(__file__).resolve().parent
+sys.path.insert(0, str(OUT.parents[1]))
+from hall_design import objects, write_generated
+
 plt.rcParams.update({'font.family': ['Microsoft YaHei', 'DejaVu Sans'],
                      'axes.unicode_minus': False, 'font.size': 11,
                      'svg.hashsalt': 'upmix-spatial-layout-v1'})
