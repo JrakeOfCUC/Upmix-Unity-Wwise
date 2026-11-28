@@ -6,6 +6,7 @@ import subprocess
 import sys
 import uuid
 import xml.etree.ElementTree as ET
+from spatial_hall_banks import configure_spatial_hall
 
 ROOT = Path(__file__).resolve().parent
 SOURCE = Path(sys.argv[1]).resolve()
@@ -172,6 +173,8 @@ for song, title in SONGS.items():
         raise ValueError((song, roles, expected))
     banks.append(bank)
 configure_effects(sounds, banks)
+configure_spatial_hall(BUILD, banks)
+bank_names.append('SpatialHallPreset')
 for tree, path in zip(trees, units):
     tree.write(path, encoding='utf-8', xml_declaration=True)
 result = subprocess.run([str(CONSOLE), 'generate-soundbank', str(BUILD / SOURCE.name),
@@ -182,7 +185,7 @@ for platform in ('Windows', 'Mac'):
     shutil.copyfile(BUILD / 'GeneratedSoundBanks' / platform / 'Init.bnk', DEST / platform / 'Init.bnk')
     for bank in bank_names:
         file = BUILD / 'GeneratedSoundBanks' / platform / (bank + '.bnk')
-        if file.stat().st_size < 1000000:
+        if file.stat().st_size < (100 if bank == 'SpatialHallPreset' else 1000000):
             raise ValueError(f'Missing embedded audio: {file}')
         shutil.copyfile(file, DEST / platform / file.name)
         meta = DEST / platform / (file.name + '.meta')

@@ -1,6 +1,30 @@
 # 虚拟音乐厅声源位置方案 B
 
-2026-11-28 · 位置设计阶段。未修改 Unity 场景、播放代码或 SoundBank，未进行听音验证。
+2026-11-28 · 下方效果图及坐标是原始设计记录；现已作为可选“音乐厅 B”预设接入程序。声学主观效果仍需实际听音调校。
+
+## 在程序中使用
+
+运行 SampleScene，按 Esc → 空间音源编辑 → 应用音乐厅 B。该操作替换当前直接音源对象，设置八类分轨坐标，并默认静音 Instrumental；可以再次开启这条轨。选择“恢复初始布局”恢复本次启动时的场景位置。原场景启动默认布局不变。
+
+E1/E2及R1—R6是固定世界位置的纯效果返回，出现在小地图中，地图半径自动至少8m。每轨的混响发送量和静音/独奏、全局混响旁通控制这些返回；音乐厅B启用时停用原来的小房间/音乐厅双选返回，避免叠加。切换整首歌曲保留预设；保存布局使用version 2并保存预设状态和每对象静音，仍可导入旧version 1布局。这里的布局文件不保存完整EQ和增益混音快照。
+
+本机已安装的Wwise版本为2025.1.8.9170。重新生成方法（其他设备修改工具及源工程路径）：
+
+```powershell
+python build_song_banks.py 'D:/Wwise/WwiseProjects/Ambisonics/Ambisonics.wproj' 'D:/Wwise/Wwise_2025.1.8.9170/Authoring/x64/Release/bin/WwiseConsole.exe'
+```
+
+新增 `spatial_hall_banks.py` 生成不带音乐素材的SpatialHallPreset音库。Windows/Mac各平台应包含该bank以及对应Init和歌曲bank。所有生成音库仍被Git忽略，另一台设备必须重新生成；缺少预设音库时程序显示错误并保留旧布局，不会悄悄退化为复制干声。
+
+实现采用8个带Listener Relative Routing的单声道AuxBus，各自关联空间返回GameObject再路由到主摄像机。前两路为29/37ms纯湿Delay、无反馈；其余六路使用独立RoomVerb实例，禁用内部早反射、关闭dry，预延时80–115ms、衰减1.3–1.65s并改变扩散/形状参数。发送权重为早反射每路0.7、侧后每路0.45、顶部每路0.3，乘以当前轨的发送量与有效增益。不同参数旨在降低返回相关性，未声称已达到实测去相关指标。Wwise原生API支持可变长度发送数组；本项目单独封装8路缓冲，不修改第三方四路AkAuxSendArray。
+
+自动集成验证入口为Editor测试 `HallPresetSmoke.EndToEnd`，在Play Mode中检查应用预设、原生8路发送、旁通、保存回读、暂停时应用、换歌和v1恢复。批处理需传入 `-wwiseEnableWithNoGraphics` 并安装Wwise原生插件与上述音库。该测试验证运行逻辑，不替代7.1.4音箱或耳机的主观听音验收。
+
+本机验证：Unity 2022.3.62f3c1编译通过；该集成测试1/1通过；Windows/Mac音库生成成功；16个坐标与设计JSON一致、8个AuxBus配置检查通过。无图形测试进入播放模式时曾记录一次Voice Starvation及音频线程挂起提示，测试通过不代表连续输出质量已通过验收。Mac端仅生成音库，未运行Mac播放器。测试命令：
+
+```powershell
+unity test D:/upmix/WwiseUpmix --mode EditMode --filter HallPresetSmoke --editor-path D:/Unity/2022.3.62f3c1/Editor/Unity.exe --timeout 240 --output D:/upmix/WwiseUpmix/Logs/hall-tests.xml -- -nographics -wwiseEnableWithNoGraphics -logFile D:/upmix/WwiseUpmix/Logs/hall-tests.log
+```
 
 ![位置效果图](spatial-layout-overview.png)
 
@@ -58,7 +82,7 @@ R1—R6 仅输出纯湿声，不能在周围复制播放原始分轨。E1/E2 仅
 
 可试相对直达声25–45ms的早反射、80–120ms后开始的扩散尾声及1.2–1.8s衰减目标，再按节奏、人声清晰度、录音已有混响调整。代理点距离不自动产生这些延时，也不代表真实反射路程。早反射与尾声应平滑衔接；先用脉冲测量实际到达时间，避免重复计入传播延时。
 
-当前 `SpatialStemPlayer.ApplyMix()` 向 `StemSmallRoom` 或 `StemHall` 发送，默认roomSend=0.12；`build_song_banks.py` 创建RoomVerb AuxBus并压低dry。现有逻辑没有这八个空间返回对象。新增空GameObject或复制分轨不能自动实现方案，需要设计空间化wet返回路径，或离线生成同步湿声分轨，并核对输出格式。引入新返回前先旁路原Hall返回，避免重复混响。
+原普通布局的 `SpatialStemPlayer.ApplyMix()` 向 `StemSmallRoom` 或 `StemHall` 发送，默认roomSend=0.12。音乐厅B改用上方所述八路返回；直接音源保持独立，返回不额外Post歌曲事件。
 
 实施后验证：在C点等响比较仅干声、加早反射、完整方案；独听每个返回确认无重复直达声；检查静音/暂停/跳转同步。转头90°/180°、四向移动1m时，舞台应保持世界位置且没有突兀热点。耳机双耳和7.1.4音箱需分别验证，本图不是物理音箱摆位图，未验证HRTF或声道映射。
 
@@ -68,4 +92,4 @@ R1—R6 仅输出纯湿声，不能在周围复制播放原始分轨。E1/E2 仅
 - `layout-design.json`：原坐标、建议坐标及相对相机坐标；是设计清单，**不是播放器的运行时导入格式**。
 - `render_layout.py`：仓库根目录执行 `python docs/spatial-layout/render_layout.py` 重建图片及JSON。依赖Python、matplotlib、NumPy；中文字体优先Microsoft YaHei，其他系统需选择可用中文字体。
 
-另一设备fetch后检出 `codex/spatial-layout-design` 并pull --ff-only。查看交付物无需Unity或原始音频；音频按根目录HANDOFF.md单独获取。本次核对了场景坐标、图表和清单一致性及图片可读性，未做运行时音频或声学验证。
+另一设备fetch后检出 `codex/spatial-layout-design` 并pull --ff-only。查看设计图无需Unity或原始音频；运行程序时按根目录HANDOFF.md取得音频、工具和原生库并重建音库。位置图及设计JSON保持原始设计用途，不作为播放器直接导入文件。

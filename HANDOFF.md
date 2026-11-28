@@ -1,6 +1,6 @@
 # Cross-device handoff
 
-Spatial layout design (2026-11-28): see `docs/spatial-layout/README.md` on branch `codex/spatial-layout-design` for the coordinate manifest, literature rationale, and PNG/SVG overview. This is a design-only proposal; scene and audio runtime behavior are unchanged. The JSON is not a runtime layout import file.
+Spatial layout preset (2026-11-28): see `docs/spatial-layout/README.md` on branch `codex/spatial-layout-design`. In the running app, press Esc, open the spatial editor, and choose the Hall B preset. It includes the stage layout, two early reflections and six wet returns. Generate the new `SpatialHallPreset.bnk` along with the song banks before use. The design JSON is not a runtime import file; use the app's Save Layout function for version-2 runtime layouts.
 
 Open `WwiseUpmix` in Unity 2022.3.62f3c1. This snapshot includes project source, scenes, settings, package manifests, Wwise integration source, and the bank-generation script.
 

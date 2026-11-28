@@ -1,0 +1,63 @@
+"""Create the media-free SpatialHallPreset bank in the generated Wwise project."""
+import copy
+import uuid
+import xml.etree.ElementTree as ET
+
+
+def configure_spatial_hall(build, banks):
+    def guid(name):
+        return '{' + str(uuid.uuid5(uuid.NAMESPACE_URL, 'upmix/spatial-hall/' + name)).upper() + '}'
+
+    def prop(parent, name, kind, value):
+        existing = parent.find(f"Property[@Name='{name}']")
+        if existing is not None:
+            parent.remove(existing)
+        ET.SubElement(parent, 'Property', Name=name, Type=kind, Value=str(value))
+
+    path = build / 'Busses/Default Work Unit.wwu'
+    tree = ET.parse(path)
+    children = tree.find(".//Bus[@Name='Main Audio Bus']/ChildrenList")
+    assert children is not None, 'Run configure_effects first'
+    factory = ET.parse(build / 'Effects/Factory Effects.wwu')
+    bank = copy.deepcopy(banks[0])
+    bank.attrib.update(Name='SpatialHallPreset', ID=guid('bank'))
+    inclusions = bank.find('ObjectInclusionList')
+    inclusions.clear()
+    banks.append(bank)
+    for i in range(8):
+        name = f'SpatialHall_{i}'
+        bus = ET.SubElement(children, 'AuxBus', Name=name, ID=guid(name))
+        properties = ET.SubElement(bus, 'PropertyList')
+        prop(properties, 'ListenerRelativeRouting', 'bool', 'True')
+        prop(properties, '3DSpatialization', 'int16', 1)
+        prop(properties, 'BusChannelConfig', 'int32', 16641)  # mono, per WObjects.xml
+        effect = copy.deepcopy(factory.find(".//Effect[@PluginName='Wwise Delay']") if i < 2
+                               else factory.find(".//Effect[@Name='Hall_Medium'][@PluginName='Wwise RoomVerb']"))
+        assert effect is not None
+        effect.attrib.update(Name=name + '_Effect', ID=guid(name + '/effect'))
+        props = effect.find('PropertyList')
+        if props is None:
+            props = ET.SubElement(effect, 'PropertyList')
+        if i < 2:
+            prop(props, 'DelayTime', 'Real32', (.029, .037)[i])
+            prop(props, 'FeedbackEnabled', 'bool', 'False')
+            prop(props, 'WetDryMix', 'Real32', 100)
+            prop(props, 'OutputLevel', 'Real32', 0)
+        else:
+            prop(props, 'DryLevel', 'Real32', -96.3)
+            prop(props, 'EnableEarlyReflections', 'bool', 'False')
+            prop(props, 'ERLevel', 'Real32', -96.3)
+            prop(props, 'ReverbLevel', 'Real32', 0)
+            prop(props, 'PreDelay', 'Real32', 80 + (i-2)*7)
+            prop(props, 'DecayTime', 'Real32', 1.3 + (i-2)*.07)
+            prop(props, 'RoomShape', 'Real32', 70 + (i-2)*5)
+            prop(props, 'Diffusion', 'Real32', 90 + (i-2)*2)
+        lists = ET.SubElement(bus, 'ObjectLists')
+        slots = ET.SubElement(lists, 'ObjectList', Name='Effects')
+        slot = ET.SubElement(slots, 'EffectSlot', Name='', ID=guid(name + '/slot'))
+        refs = ET.SubElement(slot, 'ReferenceList')
+        custom = ET.SubElement(ET.SubElement(refs, 'Reference', Name='Effect'), 'Custom')
+        custom.append(effect)
+        ET.SubElement(inclusions, 'ObjectRef', Name=name, ID=guid(name),
+                      WorkUnitID=tree.getroot().get('ID'), Origin='Manual', Filter='7')
+    tree.write(path, encoding='utf-8', xml_declaration=True)

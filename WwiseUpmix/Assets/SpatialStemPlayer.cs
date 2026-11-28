@@ -4,7 +4,7 @@ using System.IO;
 using UnityEngine;
 
 [DefaultExecutionOrder(100)]
-public sealed class SpatialStemPlayer : MonoBehaviour
+public sealed partial class SpatialStemPlayer : MonoBehaviour
 {
     private enum Song
     {
@@ -92,6 +92,7 @@ public sealed class SpatialStemPlayer : MonoBehaviour
         catalog = (Stem[])stems.Clone();
         layoutSong = startupSong;
         defaultLayout = CaptureLayout();
+        initialMinimapRadius = minimapRadius;
         UpdateLayoutPath();
         playingIds = new uint[stems.Length];
 #if UNITY_STANDALONE_OSX && !UNITY_EDITOR
@@ -189,6 +190,7 @@ public sealed class SpatialStemPlayer : MonoBehaviour
             for (int i = 0; i < layout.objects.Length; i++)
                 layout.objects[i] = new Entry { track = catalog[i].eventName, sourceSong = layout.song,
                     position = defaultLayout.objects[i].position };
+            if (hallPreset) layout = MakeHallLayout(song);
             if (InstallLayout(layout, song, false, false))
             {
                 layoutSong = song;
@@ -267,6 +269,14 @@ public sealed class SpatialStemPlayer : MonoBehaviour
             SetBand(stem.emitter, "StemEQMid", eq.y);
             SetBand(stem.emitter, "StemEQHigh", eq.z);
             send.Reset();
+            if (hallPreset)
+            {
+                var hallResult = SetHallSends(stem.emitter,
+                    !bypassEffects && !bypassRoom ? gain * stem.roomSend : 0f);
+                if (hallResult != AKRESULT.AK_Success)
+                    Debug.LogWarning($"Could not set hall sends: {hallResult}", this);
+                continue;
+            }
             if (!bypassEffects && !bypassRoom && gain * stem.roomSend > 0f)
                 send.Add(listener, AkUnitySoundEngine.GetIDFromString(roomPreset == 0 ? "StemSmallRoom" : "StemHall"),
                     gain * stem.roomSend);
@@ -351,6 +361,7 @@ public sealed class SpatialStemPlayer : MonoBehaviour
         for (int i = 0; i < legendNames.Length; i++)
             GUI.Label(new Rect(8 + (i % 2) * size / 2, size + 24 + (i / 2) * 17,
                 size / 2 - 8, 17), legendNames[i], mapText);
+        DrawHallMap(camera, center, radius, range, heading);
         GUI.matrix = previousMatrix;
         GUI.color = previousColor;
         GUI.depth = previousDepth;
@@ -442,8 +453,11 @@ public sealed class SpatialStemPlayer : MonoBehaviour
         GUILayout.BeginHorizontal();
         bool bypass = GUILayout.Toggle(bypassEffects, "旁通全部效果", GUI.skin.button);
         bool roomOff = GUILayout.Toggle(bypassRoom, "旁通混响", GUI.skin.button);
+        GUI.enabled = wasEnabled && !hallPreset;
         int preset = GUILayout.Toolbar(roomPreset, RoomNames);
+        GUI.enabled = wasEnabled;
         GUILayout.EndHorizontal();
+        if (hallPreset) GUILayout.Label("音乐厅 B · 2 路早反射 + 6 路空间混响");
         bool changed = bypass != bypassEffects || roomOff != bypassRoom || preset != roomPreset;
         bypassEffects = bypass;
         bypassRoom = roomOff;
@@ -497,6 +511,7 @@ public sealed class SpatialStemPlayer : MonoBehaviour
         public string track;
         public string sourceSong;
         public Vector3 position;
+        public bool muted;
     }
 
     [Serializable] private class Layout
@@ -504,6 +519,7 @@ public sealed class SpatialStemPlayer : MonoBehaviour
         public int version;
         public string song;
         public Entry[] objects;
+        public bool hallPreset;
     }
 
     private Stem[] catalog;
@@ -521,8 +537,8 @@ public sealed class SpatialStemPlayer : MonoBehaviour
 
     private Layout CaptureLayout()
     {
-        return new Layout { version = 1, song = layoutSong.ToString(), objects = Array.ConvertAll(stems,
-            s => new Entry { track = s.eventName, sourceSong = s.song.ToString(), position = s.emitter.transform.position }) };
+        return new Layout { version = 2, song = layoutSong.ToString(), hallPreset = hallPreset, objects = Array.ConvertAll(stems,
+            s => new Entry { track = s.eventName, sourceSong = s.song.ToString(), position = s.emitter.transform.position, muted = s.muted }) };
     }
 
     private bool InstallLayout(Layout layout, Song song, bool append, bool sync = true)
@@ -531,8 +547,10 @@ public sealed class SpatialStemPlayer : MonoBehaviour
         var ids = new List<uint>();
         try
         {
-            if (layout == null || layout.version != 1 || layout.song != song.ToString() || layout.objects == null)
+            if (layout == null || (layout.version != 1 && layout.version != 2) || layout.song != song.ToString() || layout.objects == null)
                 throw new InvalidDataException("布局版本或所属曲目不匹配。");
+            if (!append && layout.version == 2 && layout.hallPreset && !PrepareHall())
+                throw new IOException(switchError);
             bool active = Array.Exists(playingIds, id => id != 0);
             int ms = active && sync ? Position() : 0;
             foreach (Entry entry in layout.objects)
@@ -549,6 +567,7 @@ public sealed class SpatialStemPlayer : MonoBehaviour
                 }
                 stem.emitter = catalog[t].emitter;
                 stem.song = source;
+                if (layout.version == 2) stem.muted = entry.muted;
                 string evt = EventFor(stem, source);
                 if (evt != null && !LoadSong(source)) throw new IOException(switchError);
                 stem.emitter = Instantiate(stem.emitter, entry.position, stem.emitter.transform.rotation, transform);
@@ -585,6 +604,7 @@ public sealed class SpatialStemPlayer : MonoBehaviour
         }
         stems = created.ToArray();
         playingIds = ids.ToArray();
+        if (!append) SetHallActive(layout.version == 2 && layout.hallPreset);
         selected = append ? stems.Length - 1 : 0;
         RefreshObjects();
         return true;
@@ -623,6 +643,7 @@ public sealed class SpatialStemPlayer : MonoBehaviour
     private void DrawEditor()
     {
         editorScroll = GUILayout.BeginScrollView(editorScroll);
+        DrawHallPresetControls();
         GUILayout.Label("从当前曲目的分轨新建音源");
         sourceTrack = GUILayout.SelectionGrid(sourceTrack, Array.ConvertAll(catalog, s => s.label), 4);
         Stem template = catalog[sourceTrack];
@@ -706,6 +727,7 @@ public sealed class SpatialStemPlayer : MonoBehaviour
     private void OnDestroy()
     {
         if (!AkUnitySoundEngine.IsInitialized()) return;
+        DisposeHall();
 #if UNITY_STANDALONE_OSX && !UNITY_EDITOR
         if (checkId != 0) AkUnitySoundEngine.StopPlayingID(checkId);
         if (ownsCheckBank) AkUnitySoundEngine.UnloadBank(checkBankId, IntPtr.Zero);
