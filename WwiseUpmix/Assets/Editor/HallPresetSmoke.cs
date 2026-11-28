@@ -86,11 +86,12 @@ public class HallPresetSmoke
         Call(player, "SetPaused", true);
         Require((bool)Call(player, "InstallLayout", saved, song, false, true), "Paused application failed");
         Require((bool)Field(player, "paused"), "Preset lost paused state");
+        Pump();
         var secondSong = Enum.ToObject(song.GetType(), 1);
         Call(player, "SwitchSong", 0, secondSong);
         var switched = (Array)Field(player, "stems");
         Require(switched.GetValue(0).GetType().GetField("song").GetValue(switched.GetValue(0)).Equals(secondSong),
-            "Single-track switch failed");
+            "Single-track switch failed: " + Field(player, "switchError"));
         Require(switched.GetValue(1).GetType().GetField("song").GetValue(switched.GetValue(1)).Equals(song),
             "Single-track switch changed its neighbor");
         Call(player, "SwitchSong", -1, secondSong);
