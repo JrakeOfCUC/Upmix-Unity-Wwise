@@ -90,6 +90,7 @@ R1—R6 仅输出纯湿声，不能在周围复制播放原始分轨。E1/E2 仅
 
 - `spatial-layout-overview.png`：2880×1920位置效果图；SVG为矢量版。
 - `layout-design.json`：原坐标、建议坐标及相对相机坐标；是设计清单，**不是播放器的运行时导入格式**。
+- `hall_design.py` 维护点位、音轨、返回标签和初始静音状态。执行 `python docs/spatial-layout/hall_design.py` 更新设计 JSON 和 Unity 预设数据。
 - `render_layout.py`：仓库根目录执行 `python docs/spatial-layout/render_layout.py` 重建图片及JSON。依赖Python、matplotlib、NumPy；中文字体优先Microsoft YaHei，其他系统需选择可用中文字体。
 
 另一设备fetch后检出 `codex/spatial-layout-design` 并pull --ff-only。查看设计图无需Unity或原始音频；运行程序时按根目录HANDOFF.md取得音频、工具和原生库并重建音库。位置图及设计JSON保持原始设计用途，不作为播放器直接导入文件。

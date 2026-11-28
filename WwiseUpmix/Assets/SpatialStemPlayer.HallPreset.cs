@@ -4,26 +4,6 @@ using UnityEngine;
 
 public sealed partial class SpatialStemPlayer
 {
-    // World coordinates from docs/spatial-layout/layout-design.json, fixed around C=(0,1,-10).
-    private static readonly Vector3[] HallStagePositions = {
-        new Vector3(0,1.6f,-6), new Vector3(1.8f,1.6f,-4.5f),
-        new Vector3(-1.3f,1.1f,-5), new Vector3(0,1.3f,-3.5f),
-        new Vector3(3,1.3f,-5.5f), new Vector3(-3,1.2f,-5.5f),
-        new Vector3(-2.2f,1.5f,-3.5f), new Vector3(0,1.3f,-4.8f)
-    };
-    private static readonly string[] HallTracks = {
-        "Vocal", "Harmony", "Bass", "Drums", "Guitar", "Piano", "Other", "Instrumental"
-    };
-    private static readonly Vector3[] HallReturnPositions = {
-        new Vector3(-3.6f,2.2f,-8), new Vector3(3.6f,2.2f,-8),
-        new Vector3(-4,1.8f,-10), new Vector3(4,1.8f,-10),
-        new Vector3(-3,2,-13), new Vector3(3,2,-13),
-        new Vector3(-2,4.2f,-11), new Vector3(2,4.2f,-11)
-    };
-    private static readonly string[] HallReturnNames = {
-        "E1 左早反射", "E2 右早反射", "R1 左侧混响", "R2 右侧混响",
-        "R3 左后混响", "R4 右后混响", "R5 左上混响", "R6 右上混响"
-    };
     // Energy-normalized late sends (four side/rear + two quieter height returns).
     private static readonly float[] HallReturnGains = { .7f, .7f, .45f, .45f, .45f, .45f, .3f, .3f };
     private bool hallPreset, ownsHallBank;
@@ -34,10 +14,10 @@ public sealed partial class SpatialStemPlayer
 
     private SpatialLayout MakeHallLayout(Song song)
     {
-        var entries = new SpatialLayout.Entry[HallTracks.Length];
+        var entries = new SpatialLayout.Entry[HallStage.Length];
         for (int i = 0; i < entries.Length; i++)
-            entries[i] = new SpatialLayout.Entry { track = "Play_Stem_" + HallTracks[i],
-                sourceSong = song.ToString(), position = HallStagePositions[i], muted = i == 7 };
+            entries[i] = new SpatialLayout.Entry { track = HallStage[i].Track,
+                sourceSong = song.ToString(), position = HallStage[i].Position, muted = HallStage[i].Muted };
         return new SpatialLayout { version = 2, song = song.ToString(), objects = entries, hallPreset = true };
     }
 
@@ -74,7 +54,7 @@ public sealed partial class SpatialStemPlayer
             return false;
         }
         ownsHallBank = result == AKRESULT.AK_Success;
-        hallReturns = new GameObject[HallReturnPositions.Length];
+        hallReturns = new GameObject[HallReturns.Length];
         try
         {
             hallSends = new HallSendBuffer(hallReturns.Length);
@@ -82,8 +62,8 @@ public sealed partial class SpatialStemPlayer
             using (var mono = new AkChannelConfig(1, 4)) // AK_SPEAKER_FRONT_CENTER
             for (int i = 0; i < hallReturns.Length; i++)
             {
-                var node = hallReturns[i] = new GameObject(HallReturnNames[i]);
-                node.transform.position = HallReturnPositions[i];
+                var node = hallReturns[i] = new GameObject(HallReturns[i].Name);
+                node.transform.position = HallReturns[i].Position;
                 node.transform.SetParent(transform, true);
                 node.AddComponent<AkGameObj>().isEnvironmentAware = false;
                 CheckHallResult(AkUnitySoundEngine.SetListeners(node, listenerIds, 1));
@@ -123,13 +103,13 @@ public sealed partial class SpatialStemPlayer
     private void DrawHallMap(Camera camera, Vector2 center, float radius, float range, Quaternion heading)
     {
         if (!hallPreset) return;
-        for (int i = 0; i < HallReturnPositions.Length; i++)
+        for (int i = 0; i < HallReturns.Length; i++)
         {
-            Vector3 p = heading * (HallReturnPositions[i] - camera.transform.position);
+            Vector3 p = heading * (HallReturns[i].Position - camera.transform.position);
             if (new Vector2(p.x, p.z).sqrMagnitude > range * range) continue;
             Vector2 point = center + new Vector2(p.x, -p.z) * (radius / range);
             MapRect(new Rect(point.x - 8, point.y - 7, 16, 14), i < 2 ? new Color(.65f,.36f,.08f) : new Color(.4f,.28f,.65f));
-            GUI.Label(new Rect(point.x - 8, point.y - 7, 16, 14), i < 2 ? "E" + (i+1) : "R" + (i-1), mapMarker);
+            GUI.Label(new Rect(point.x - 8, point.y - 7, 16, 14), HallReturns[i].Marker, mapMarker);
         }
     }
 

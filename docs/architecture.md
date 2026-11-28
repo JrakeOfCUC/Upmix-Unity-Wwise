@@ -31,7 +31,7 @@ The inspected application entry points expose local files and native audio servi
 
 1. Pin layout v1/v2 round trips, invalid input and playback rollback with the Unity smoke harness before separating layout persistence and editor UI from SpatialStemPlayer. Preserve serialized field names, enum ordinals, GUIDs and reflection entry points.
 2. Completed song catalog migration. Edit SONGS in song_catalog.py and run python song_catalog.py. It projects stable scene ordinals and one typed record per song into the player. Bank generation consumes the same entries directly. CI checks the projection and existing persisted identifiers.
-3. Stage and return coordinates appear in the design renderer and runtime preset. Establish a tested build-time mapping that keeps design-only and runtime save formats separate.
+3. Completed hall design migration. docs/spatial-layout/hall_design.py owns coordinates, track identity, return labels and initial mute state. The figure renderer and generated Unity preset consume its records. CI verifies both the design manifest and baked C# source. Per-return gains remain audio tuning in the runtime.
 4. Bank generation reuses a mutable Library directory. Exercise stale output, interrupted copy and concurrent runs against independent staging directories before changing publication semantics.
 5. Native send layout, device selection, callback ordering and audio quality require actual platform checks. Record Windows and macOS results separately. Defer changes to room voicing, song availability or output device fallback to a product decision.
 

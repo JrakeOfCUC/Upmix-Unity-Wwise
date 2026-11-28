@@ -1,5 +1,5 @@
 """Rebuild the design-only coordinate manifest and figures; requires matplotlib/numpy."""
-import json
+from hall_design import objects, write_generated
 from pathlib import Path
 import matplotlib
 matplotlib.use('Agg')
@@ -13,35 +13,7 @@ plt.rcParams.update({'font.family': ['Microsoft YaHei', 'DejaVu Sans'],
                      'svg.hashsalt': 'upmix-spatial-layout-v1'})
 BG, PANEL, INK, MUTED = '#091420', '#101f2e', '#edf4fa', '#9aafc0'
 COLORS = {'direct': '#56d9d0', 'early': '#ffbf69', 'late': '#a392ff', 'reserve': '#748697'}
-camera = [0, 1, -10]
-# Coordinates are Unity world XYZ, metres. These are proposed values, not scene edits.
-rows = [
- ('D1', '主唱', 'Vocal', 'direct', [0,1.6,-6], [0,1,-7]),
- ('D2', '和声', 'Harmony', 'direct', [1.8,1.6,-4.5], [1,2,-13]),
- ('D3', '贝斯', 'Bass', 'direct', [-1.3,1.1,-5], [-1,1,-7]),
- ('D4', '鼓组', 'Drums', 'direct', [0,1.3,-3.5], [0,1,-5]),
- ('D5', '吉他', 'Guitar', 'direct', [3,1.3,-5.5], [3,1,-9]),
- ('D6', '钢琴', 'Piano', 'direct', [-3,1.2,-5.5], [-3,1,-9]),
- ('D7', '其他乐器', 'Other', 'direct', [-2.2,1.5,-3.5], [-2,2,-12]),
- ('D8', '器乐备用', 'Instrumental', 'reserve', [0,1.3,-4.8], [2,2,-12]),
- ('E1', '左早反射', None, 'early', [-3.6,2.2,-8], None),
- ('E2', '右早反射', None, 'early', [3.6,2.2,-8], None),
- ('R1', '左侧混响', None, 'late', [-4,1.8,-10], None),
- ('R2', '右侧混响', None, 'late', [4,1.8,-10], None),
- ('R3', '左后混响', None, 'late', [-3,2,-13], None),
- ('R4', '右后混响', None, 'late', [3,2,-13], None),
- ('R5', '左上混响', None, 'late', [-2,4.2,-11], None),
- ('R6', '右上混响', None, 'late', [2,4.2,-11], None),
-]
-objects = [dict(id=i, label=n, event=('Play_Stem_'+r if r else None), layer=k,
-                world_xyz=p, previous_world_xyz=old,
-                camera_relative_xyz=[round(p[j]-camera[j],2) for j in range(3)],
-                proposed_enabled=k != 'reserve') for i,n,r,k,p,old in rows]
-manifest = dict(status='design_only_not_runtime_import', units='metres',
-                camera_world_xyz=camera, camera_forward_xyz=[0,0,1],
-                anchor='fixed world positions around initial camera; do not parent to camera',
-                objects=objects)
-(OUT/'layout-design.json').write_text(json.dumps(manifest, ensure_ascii=False, indent=2)+'\n',encoding='utf-8')
+write_generated()
 
 fig = plt.figure(figsize=(18,12), facecolor=BG)
 fig.text(.05,.945,'UPMIX  /  虚拟音乐厅声源位置设计',color=INK,fontsize=25,weight='bold')
