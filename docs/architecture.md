@@ -1,58 +1,85 @@
-# Architecture and work queue
+# Architecture, decisions and work queue
 
-Baseline: 25b4727 on codex/spatial-layout-design. The application plays separated stems as positioned emitters in Unity, changes songs at the current playback position, and supports editable layouts and a concert-hall return network.
+Upmix plays separated song stems as movable emitters in a Unity scene. The player can switch a whole song or a single stem, edit the mix, save a spatial layout, and apply a concert-hall preset with eight wet returns. The optional macOS output panel selects the device and plays a twelve-channel speaker check.
 
-## Dependencies and ownership
+The governance branch starts at `25b4727` on `codex/spatial-layout-design`. That commit contains the Hall B feature on top of the main project snapshot `1f2cb03`. The separate stereo-spatializer prototype on the Copilot branch has no callers in this tree.
 
-| Owner | Inputs and public boundary | State and output |
-| --- | --- | --- |
-| SampleScene, SpatialStemPlayer | Scene-serialized startup song, emitter references and event names. Unity lifecycle and IMGUI. | Per-track song, playing IDs, pause, mute, solo, EQ, send levels. Loads banks, records which loads it owns, retires emitters. |
-| ListenerCameraController | Unity input, player MixerOpen property | Camera pose and mouse capture. |
-| SpatialStemLabel | Scene label and emitter | World-space label and display name used by player. |
-| SpatialStemPlayer layout methods | CaptureLayout and InstallLayout. Layout v1/v2, song enum names, track event names. | Editable objects and per-song JSON under persistentDataPath. Temp-file replacement on save. Errors surface through switchError. |
-| SpatialStemPlayer.HallPreset | Player installation lifecycle, Wwise integration and native send ABI | Hall bank ownership, return objects, native buffer. Cleanup must follow playback lifecycle. |
-| MacOutputSelector | macOS standalone Wwise device discovery | Output device selection. Windows and Editor code follow separate compile paths. |
-| build_song_banks | Source project, stem folders and WwiseConsole CLI | Disposable Library staging project, song role validation and Windows/Mac StreamingAssets. Console codes 0 and 2 proceed to output validation. |
-| spatial_hall_banks | Work-unit directory and mutable bank list after configure_effects | Augments the main bus work unit and appends a media-free hall bank. |
-| wwise_work_unit | Semantic object key, or owner/effect/slot ID | Stable UUID and inline effect XML structure. No build-directory or process state. |
-| docs/spatial-layout/render_layout.py | Design coordinates and layer annotations | Design JSON, PNG, SVG. Runtime layout saves have a separate schema. |
+## Dependency map
 
-Dependency paths: camera → player → Wwise Unity API → platform native libraries. Scene → player → labels. Build CLI → song effects / hall builder → shared work-unit writer. Generated bank IDs, bus names, events and RTPC names connect the offline and runtime paths. HallPresetSmoke exercises private player contracts via reflection and requires the native integration and banks.
+```mermaid
+flowchart LR
+    Scene[SampleScene] --> Player[SpatialStemPlayer]
+    Camera[ListenerCameraController] --> Player
+    Player --> Label[SpatialStemLabel]
+    Player --> Layout[SpatialLayout]
+    Player --> Bank[LoadedSoundBank]
+    Player --> Effects[StemEffects]
+    Player --> Mac[MacOutputSelector]
+    Mac --> Bank
+    Player --> Wwise[Wwise Unity integration]
+    Mac --> Wwise
+    Bank --> Wwise
+    Wwise --> Native[Platform audio engine]
+    Build[build_song_banks.py] --> Songs[song_catalog.py]
+    Build --> AuthorFX[stem_effects.py]
+    Build --> Hall[spatial_hall_banks.py]
+    Build --> Publish[bank_publication.py]
+    Hall --> Design[hall_design.py]
+    Publish --> Design
+    Build --> XML[wwise_work_unit.py]
+    Hall --> XML
+    AuthorFX --> XML
+    Figures[render_layout.py] --> Design
+    Songs -. baked catalog .-> Player
+    AuthorFX -. baked controls .-> Effects
+    Design -. baked layout .-> Player
+    Publish -. SoundBanks .-> Wwise
+```
 
-The inspected application entry points expose local files and native audio services. No application account, remote API, authentication or service retry contract was identified. Unity package manifests and ProjectSettings own engine configuration. Wwise SDK sources and generated bindings follow their vendor's versioning. The reproducible local setup and excluded inputs are described in HANDOFF.md.
+MacOutputSelector compiles only in the macOS standalone player. The mixer, source map and hall partials share the SpatialStemPlayer component identity and its Unity lifecycle. First-party runtime types compile into Assembly-CSharp. The Editor smoke harness depends on that assembly. Vendor integration assemblies and generated native bindings follow the installed Wwise version.
 
-## Decisions and progress
+## State ownership and change locations
 
-- 89d2015. Consolidated duplicated EffectSlot XML and UUID construction. Constructors retain the song and hall namespaces and callers supply the precise slot ID. Append-only property creation and hall preset property replacement have different semantics. Keep them distinct. Four serialized fixture trees matched the pre-migration output byte for byte. The CLI can now be imported for tests.
-- 0a511e3. Clean clones contain platform folder metadata but lack bank metadata templates and platform directories. The publisher creates missing destinations and derives missing metadata deterministically, preserving existing GUIDs. Both platform outputs are validated before copying. Filesystem failures during copying can still interrupt publication. Rerun after fixing the failure.
-- Validation entry point: python -B -m unittest discover -s tests. The GitHub workflow runs the suite on push and pull request. Native playback needs a separately provisioned checkout.
+| Change | Authority and consumers | Compatibility contract |
+|---|---|---|
+| Song availability, title, duration, harmony, bank/event naming | Edit `SONGS` in `song_catalog.py`, then run `python song_catalog.py`. The bank builder reads the entries directly. The generated player catalog supplies inspector and runtime labels. | Explicit enum ordinals in scenes, enum names in saved layouts, default bank with unsuffixed events. Source-folder titles can differ from display names. |
+| Three-band EQ and two ordinary rooms | Edit `stem_effects.py`, then run `python stem_effects.py`. Its bindings supply the sliders, RTPC names and room bus selection. | The XML writer sets the Wwise filter types, ranges and curves. Runtime EQ uses the three components of a Vector3. |
+| Hall stage, returns and bus identity | Edit `hall_design.py`, then run `python hall_design.py`. Runtime records include stage mute, world coordinates, stable return bus, layer and gain. The hall builder consumes the same return ordering. | Two early returns followed by six late returns. The design manifest and v1/v2 player layout JSON have distinct consumers and schemas. Rebuild documentation figures with `python docs/spatial-layout/render_layout.py`. |
+| Playback and mix state | SpatialStemPlayer owns the live stem array. Each stem holds its emitter, song, playing ID, mix settings and event identity. The component stages replacements before committing them, and handles callback, seek, pause and pruning. | Only the original serialized stem fields belong to the scene. Per-song and per-track changes preserve their distinct timing rules. |
+| Layout data and files | SpatialLayout owns the JSON fields, per-song filename, read and atomic replacement. SpatialStemPlayer resolves all entries against the catalog before preparing native resources. | v1 and v2 reads, v2 writes, fixed world coordinates and per-object song identity. Rejected imports preserve the live state. |
+| UI and input | SpatialStemPlayer.Mixer owns IMGUI controls and selection. SourceMap owns marker projection, styles and reusable labels. ListenerCameraController reads input and toggles MixerOpen. SpatialStemLabel supplies scene labels. | Native work goes through playback commands or the macOS output panel. The layout selector and map read one legend. |
+| Device and native resource lifetime | LoadedSoundBank distinguishes owned and borrowed loads. MacOutputSelector owns output selection, speaker-test bank, playing ID and callback. HallPreset owns return objects and the native send buffer. | Only the owner unloads a bank. Native sends use the SDK's element size and setters for eight entries. Ordinary room sends continue to use the integration array. |
+| Inputs, cache and publication | build_song_banks.py owns CLI inputs, project preparation and the per-worktree build lock. wwise_work_unit.py owns stable UUIDs and effect slot structure. bank_publication.py validates and installs both platforms and preserves existing Unity metadata. | Two positional CLI arguments. Wwise exit codes 0 and 2 pass to fresh-output validation. Staging and rollback share the destination volume. |
+| Configuration and diagnostics | ProjectSettings and Packages pin Unity configuration. Wwise binaries, source media and authoring project are device inputs. Runtime failures flow to switchError or Unity logging. CLI failures propagate the failing phase to the caller. | The application uses local files and native audio services. This tree contains no application login, remote service retry pipeline, hosted database or user credential store. |
 
-## Open work by dependency
+## Decisions and migration progress
 
-1. Pin layout v1/v2 round trips, invalid input and playback rollback with the Unity smoke harness before separating layout persistence and editor UI from SpatialStemPlayer. Preserve serialized field names, enum ordinals, GUIDs and reflection entry points.
-2. Completed song catalog migration. Edit SONGS in song_catalog.py and run python song_catalog.py. It projects stable scene ordinals and one typed record per song into the player. Bank generation consumes the same entries directly. CI checks the projection and existing persisted identifiers.
-3. Completed hall design migration. hall_design.py owns coordinates, track identity, return labels and initial mute state. The figure renderer and generated Unity preset consume its records. CI verifies both the design manifest and baked C# source. The same return records bind stable native bus IDs, Early/Late roles, map labels and per-return gains to the sound-bank writer and runtime.
-4. The build lock covers project preparation, Wwise generation and publication. Expected cached banks are invalidated before invoking Wwise. Publication stages both platforms on the destination volume, preserves existing GUIDs, and rolls back installed files on a recoverable replacement failure. A process or machine loss during replacement requires rerunning the CLI. The cached authoring project path is preserved.
-5. Native send layout, device selection, callback ordering and audio quality require actual platform checks. Record Windows and macOS results separately. Defer changes to room voicing, song availability or output device fallback to a product decision.
+| Batch | Alternatives reviewed and decision |
+|---|---|
+| `89d2015`, `0a511e3` | Replaced duplicate inline effect-slot XML builders while retaining separate song/hall UUID prefixes. Property append and inherited-property replacement have different semantics. Kept both. Four fixture trees matched the original byte for byte. |
+| `b3ab74f`, `f7b0d18`, `4101376`, `d0ee488` | Compared loading design files on startup with baking typed C# data. Selected baking to preserve Unity serialization, startup behavior and the existing authoring CLI. The Python definitions own edits. CI detects stale projections. |
+| `cb90610`, `b5e07eb`, `3d7418d` | Moved persistence out of IMGUI and validated layout entries before allocation. Kept the v1/v2 fields. Removed the parallel playing-ID array and migrated callbacks, track replacement, append, removal and teardown to stem-owned IDs. |
+| `70b8990`, `94b64d3`, `dc802f3`, `c649bf4` | Removed whole-song iteration from the single-track path, shared synchronized posting, and consolidated map projection. Kept the scene component and IMGUI to avoid a framework or asset migration. Native device commands now live in the platform module. |
+| `18a2abc` | Replaced three implementations of load-result interpretation with one disposable bank handle. The smoke test exercises acquired, borrowed and released states against the real engine. |
+| `bcb747e`, `fe3b807` | Preserved the cached project path for local authoring tools. An OS lock serializes writers. A run invalidates expected cached banks and stages new bytes before replacement. A recoverable install failure rolls back. If the rollback itself lacks access, the error identifies the recovery directory containing the previous files. |
+| `9dd4f5b` and the compiled dependency check | The Python test suite runs on Windows and Linux. It covers module imports, selected C# call boundaries and data projections. The local PowerShell verifier inspects compiled player IL for first-party cycles, including target-specific code. |
 
-## Validation on the Windows development machine
+## Validation and handoff
 
-The song catalog build used the source Ambisonics project, local stems and WwiseConsole 2025.1.8. All 20 published Windows/Mac banks matched the prior device outputs by SHA-256 (5,751,173,364 bytes). macOS playback requires its own runtime check.
+1. Run `python -B -m unittest discover -s tests` from the repository root. The suite exercises the shared authoring contract, metadata preservation, stale output, lock contention and rollback. Regenerate edited data definitions before committing them with their projections.
+2. Provision the exact Editor, Wwise binaries and media described in HANDOFF.md. Generate the two platform bank sets with the normal CLI. The final Windows development-machine check compared all 20 output files, totaling 5,751,173,364 bytes, with the previous playable checkout using SHA-256.
+3. Run the Unity Editor with `-batchmode -nographics -wwiseEnableWithNoGraphics -runTests -testPlatform EditMode -testFilter HallPresetSmoke -projectPath <WwiseUpmix> -testResults <xml>`. Require one passed test. The harness exercises native ownership, eight spatial sends, bypass, disk create/replace/read, invalid import rollback, paused track and song switches, append/remove and legacy restore.
+4. Compile the Windows and macOS standalone players. Run the following once against each built player's managed Assembly-CSharp.dll. The verifier groups nested types with their owning component and checks references in base types, interfaces, fields, signatures, locals and method instructions. A deliberately injected reverse edge was rejected during validation.
 
-SpatialLayout owns the v1/v2 field schema, per-song filename and atomic file replacement. The player owns validation against the live catalog, installation, synchronization and rollback. The Windows Unity 2022.3.62f3c1 HallPresetSmoke test passed with file creation, replacement and reload as well as legacy restore. Run the Editor with -batchmode -nographics -wwiseEnableWithNoGraphics -runTests -testPlatform EditMode -testFilter HallPresetSmoke -projectPath <project> -testResults <xml>. Provision native Wwise plugin DLLs with their import metadata and Windows banks first.
+```powershell
+./tools/check_player_dependencies.ps1 -AssemblyPath <player-assembly> -EditorPath <Unity.exe>
+```
 
-Single-track switching now replaces just the selected playing ID. It shares post/seek/pause and unused-bank cleanup with layout installation. The Windows smoke test exercises a paused track replacement and checks its neighbor before the full-song switch.
+## Task pool and verification limits
 
-SourceMap owns IMGUI map styles, listener-relative projection, numbering and legend labels. Startup and layout refresh rebuild its labels through one method. The layout selection grid reads the same legend. A headless Windows native smoke run passed after extraction; pixel-level rendering was not measured.
-
-LoadedSoundBank owns the success/borrow/failure interpretation and conditional unload for song, hall and macOS channel-check banks. HallSendBuffer cleanup now runs even after the sound engine has stopped. The native Windows test loaded an unused song bank twice, disposed the borrower, verified the bank was still loaded, then disposed the owner and verified a fresh load succeeded.
-
-Layout installation resolves every catalog reference, source song and position before creating native returns or posting audio. A Windows regression test initially failed on a layout whose final entry referenced an unknown song. It passed after the fix and verifies the original layout, ordered playback IDs and return resources on rejection.
-
-A live stem owns its Wwise playing ID. Layout append, removal, replacement, seek and end-of-event callbacks use this same record. The scene continues to serialize only the emitter and event name. The Windows smoke test confirms append/remove preserves all neighboring IDs.
-
-The mixer partial owns IMGUI events, picker and scroll state, and layout editor controls. MacOutputSelector owns channel-check playback and output selection. The transport owns pause policy. Unity built the macOS standalone application including Assembly-CSharp and the native plugin bundle, and the Windows Editor native smoke passed.
-
-stem_effects.py owns EQ RTPC names, frequencies, filter modes, gain limits and room presets. Its generated StemEffects.cs binds both mix controls and Wwise parameter writes. The final native smoke passed and all 20 generated banks again matched the original hardware checkout by SHA-256.
-
-bank_publication.py owns validation, metadata identity, installation and rollback. If a file lock also prevents rollback, the error names a .bank-recovery-* directory containing the original bytes. A fault-injection test covers this second failure.
+| Status | Item and trigger |
+|---|---|
+| Closed | Song, effect and hall definitions, file schema ownership, Wwise load ownership, live stem identity, mixer/native boundary, bank validation and interrupted-install recovery. Regression coverage is listed above. |
+| Device validation | Test physical macOS output selection, twelve-channel speaker assignment and perceived spatial balance with the target interface. A successful macOS cross-build verifies compilation and packaging. The Windows native smoke measures registered sends and transport behavior. |
+| Product decision | Changes to the hall voicing, source availability, layout schema or fallback device policy need explicit product direction. Current bank hashes and save contracts are the baseline. |
+| Operational recovery | On abrupt process or machine loss during multi-file replacement, rerun the CLI after restoring filesystem access. Individual replacements are atomic. If an exceptional rollback reports a recovery directory, retain it until the original files or regenerated set have been verified. |
