@@ -1,9 +1,12 @@
 """Build the additional song banks using the existing spatial sounds as templates."""
+from contextlib import contextmanager
 import copy
+import os
 from pathlib import Path
 import shutil
 import subprocess
 import sys
+import tempfile
 import uuid
 import xml.etree.ElementTree as ET
 from wwise_work_unit import guid, effect_slot
@@ -97,8 +100,31 @@ def role_of(path):
     raise ValueError(path)
 
 
+@contextmanager
+def exclusive_build(directory):
+    directory.mkdir(parents=True, exist_ok=True)
+    # The OS releases this lock on process exit, including an interrupted build.
+    with (directory / 'build.lock').open('a+b') as lock:
+        lock.seek(0)
+        try:
+            if os.name == 'nt':
+                import msvcrt
+                msvcrt.locking(lock.fileno(), msvcrt.LK_NBLCK, 1)
+            else:
+                import fcntl
+                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError as error:
+            raise RuntimeError(f'Cannot lock SoundBank build directory: {directory}') from error
+        yield
+
+
 def build_song_banks(source, console):
-    BUILD.mkdir(parents=True, exist_ok=True)
+    with exclusive_build(BUILD):
+        bank_names = prepare_project(source)
+        generate_and_publish(BUILD, source.name, console, bank_names, DEST)
+
+
+def prepare_project(source):
     shutil.copy2(source, BUILD / source.name)
     shutil.copytree(source.parent / 'Originals', BUILD / 'Originals', dirs_exist_ok=True)
     for unit in source.parent.glob('*/*.wwu'):
@@ -162,11 +188,20 @@ def build_song_banks(source, console):
     bank_names.append('SpatialHallPreset')
     for tree, path in zip(trees, units):
         tree.write(path, encoding='utf-8', xml_declaration=True)
-    result = subprocess.run([str(console), 'generate-soundbank', str(BUILD / source.name),
+    return bank_names
+
+
+def generate_and_publish(build, project_name, console, bank_names, destination):
+    generated = build / 'GeneratedSoundBanks'
+    # A warning-only Wwise exit can omit a bank. Require fresh output for every target.
+    for platform in PLATFORMS:
+        for bank in ['Init', *bank_names]:
+            (generated / platform / (bank + '.bnk')).unlink(missing_ok=True)
+    result = subprocess.run([str(console), 'generate-soundbank', str(build / project_name),
                              '--platform', *PLATFORMS, '--bank', *bank_names])
     if result.returncode not in (0, 2):
         sys.exit(result.returncode)
-    publish_banks(BUILD / 'GeneratedSoundBanks', DEST, bank_names)
+    publish_banks(generated, destination, bank_names)
 
 
 def publish_banks(generated, destination, bank_names):
@@ -178,22 +213,55 @@ def publish_banks(generated, destination, bank_names):
             if path.stat().st_size < minimum:
                 raise ValueError(f'Incomplete SoundBank: {path}')
 
-    for platform in PLATFORMS:
-        folder = destination / platform
-        folder.mkdir(parents=True, exist_ok=True)
-        template = folder / 'UpmixStems.bnk.meta'
-        for bank in ['Init', *bank_names]:
-            name = bank + '.bnk'
-            shutil.copyfile(generated / platform / name, folder / name)
-            meta = folder / (name + '.meta')
-            if meta.exists():
-                continue
-            lines = template.read_text().splitlines() if template.exists() else [
-                'fileFormatVersion: 2', '', 'DefaultImporter:', '  externalObjects: {}',
-                '  userData:', '  assetBundleName:', '  assetBundleVariant:',
-            ]
-            lines[1] = 'guid: ' + uuid.uuid5(uuid.NAMESPACE_URL, platform + '/' + bank).hex
-            meta.write_text('\n'.join(lines) + '\n')
+    # Complete every copy before installing files, so a read error or full disk leaves
+    # the existing playable set intact. Stage on the destination volume for os.replace.
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(dir=destination.parent, prefix='.bank-publish-') as temp:
+        stage = Path(temp)
+        for platform in PLATFORMS:
+            folder = stage / platform
+            folder.mkdir()
+            target = destination / platform
+            template = target / 'UpmixStems.bnk.meta'
+            for bank in ['Init', *bank_names]:
+                name = bank + '.bnk'
+                shutil.copyfile(generated / platform / name, folder / name)
+                if (target / (name + '.meta')).exists():
+                    continue
+                lines = template.read_text().splitlines() if template.exists() else [
+                    'fileFormatVersion: 2', '', 'DefaultImporter:', '  externalObjects: {}',
+                    '  userData:', '  assetBundleName:', '  assetBundleVariant:',
+                ]
+                lines[1] = 'guid: ' + uuid.uuid5(uuid.NAMESPACE_URL, platform + '/' + bank).hex
+                (folder / (name + '.meta')).write_text('\n'.join(lines) + '\n')
+        installed = []
+        try:
+            for platform in PLATFORMS:
+                target = destination / platform
+                target.mkdir(parents=True, exist_ok=True)
+                backup = stage / 'previous' / platform
+                backup.mkdir(parents=True)
+                # Install importer metadata before Unity discovers new bank files.
+                for file in sorted((stage / platform).iterdir(), key=lambda p: p.suffix != '.meta'):
+                    live = target / file.name
+                    previous = None
+                    if live.exists():
+                        if file.suffix == '.meta':
+                            continue
+                        previous = backup / file.name
+                        try:
+                            os.link(live, previous)
+                        except OSError:
+                            shutil.copyfile(live, previous)
+                    file.replace(live)
+                    installed.append((live, previous))
+        except BaseException:
+            for live, previous in reversed(installed):
+                if previous is None:
+                    live.unlink()
+                else:
+                    previous.replace(live)
+            raise
 
 
 if __name__ == '__main__':
