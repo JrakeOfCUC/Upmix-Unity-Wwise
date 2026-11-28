@@ -32,13 +32,13 @@ public sealed partial class SpatialStemPlayer
     private GameObject[] hallReturns;
     private HallSendBuffer hallSends;
 
-    private Layout MakeHallLayout(Song song)
+    private SpatialLayout MakeHallLayout(Song song)
     {
-        var entries = new Entry[HallTracks.Length];
+        var entries = new SpatialLayout.Entry[HallTracks.Length];
         for (int i = 0; i < entries.Length; i++)
-            entries[i] = new Entry { track = "Play_Stem_" + HallTracks[i],
+            entries[i] = new SpatialLayout.Entry { track = "Play_Stem_" + HallTracks[i],
                 sourceSong = song.ToString(), position = HallStagePositions[i], muted = i == 7 };
-        return new Layout { version = 2, song = song.ToString(), objects = entries, hallPreset = true };
+        return new SpatialLayout { version = 2, song = song.ToString(), objects = entries, hallPreset = true };
     }
 
     private void DrawHallPresetControls()
@@ -52,8 +52,8 @@ public sealed partial class SpatialStemPlayer
         }
         if (GUILayout.Button("恢复初始布局"))
         {
-            var layout = new Layout { version = 2, song = layoutSong.ToString(),
-                objects = Array.ConvertAll(defaultLayout.objects, e => new Entry {
+            var layout = new SpatialLayout { version = 2, song = layoutSong.ToString(),
+                objects = Array.ConvertAll(defaultLayout.objects, e => new SpatialLayout.Entry {
                     track = e.track, sourceSong = layoutSong.ToString(), position = e.position }) };
             InstallLayout(layout, layoutSong, false);
             GUIUtility.ExitGUI();

@@ -1,4 +1,5 @@
 using System;
+using System.IO;
 using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Threading;
@@ -68,7 +69,18 @@ public class HallPresetSmoke
         finally { Marshal.FreeHGlobal(buffer); }
         string json = JsonUtility.ToJson(Call(player, "CaptureLayout"));
         Require(json.Contains("\"hallPreset\":true"), "Save lost preset");
-        object saved = JsonUtility.FromJson(json, preset.GetType());
+        string path = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".spatial.json");
+        object saved;
+        try
+        {
+            // Exercise creation and replacement using the same serializer as the editor UI.
+            var save = preset.GetType().GetMethod("Save");
+            save.Invoke(initial, new object[] { path });
+            save.Invoke(preset, new object[] { path });
+            saved = preset.GetType().GetMethod("Load").Invoke(null, new object[] { path });
+            Require(JsonUtility.ToJson(saved) == JsonUtility.ToJson(preset), "Disk layout round trip changed fields");
+        }
+        finally { File.Delete(path); }
         Require((bool)Call(player, "InstallLayout", saved, song, false, true), "Round trip failed");
         Pump();
         Call(player, "SetPaused", true);

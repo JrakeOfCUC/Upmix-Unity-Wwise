@@ -185,9 +185,9 @@ public sealed partial class SpatialStemPlayer : MonoBehaviour
         switchError = null;
         if (target == WholeSong)
         {
-            var layout = new Layout { version = 1, song = song.ToString(), objects = new Entry[defaultLayout.objects.Length] };
+            var layout = new SpatialLayout { version = 1, song = song.ToString(), objects = new SpatialLayout.Entry[defaultLayout.objects.Length] };
             for (int i = 0; i < layout.objects.Length; i++)
-                layout.objects[i] = new Entry { track = catalog[i].eventName, sourceSong = layout.song,
+                layout.objects[i] = new SpatialLayout.Entry { track = catalog[i].eventName, sourceSong = layout.song,
                     position = defaultLayout.objects[i].position };
             if (hallPreset) layout = MakeHallLayout(song);
             if (InstallLayout(layout, song, false, false))
@@ -505,24 +505,8 @@ public sealed partial class SpatialStemPlayer : MonoBehaviour
         if (changed) ApplyMix();
     }
 
-    [Serializable] private class Entry
-    {
-        public string track;
-        public string sourceSong;
-        public Vector3 position;
-        public bool muted;
-    }
-
-    [Serializable] private class Layout
-    {
-        public int version;
-        public string song;
-        public Entry[] objects;
-        public bool hallPreset;
-    }
-
     private Stem[] catalog;
-    private Layout defaultLayout;
+    private SpatialLayout defaultLayout;
     private Song layoutSong;
     private bool editing;
     private int sourceTrack, selected;
@@ -531,16 +515,16 @@ public sealed partial class SpatialStemPlayer : MonoBehaviour
 
     private void UpdateLayoutPath()
     {
-        layoutPath = Path.Combine(Application.persistentDataPath, layoutSong + ".spatial.json");
+        layoutPath = SpatialLayout.DefaultPath(Application.persistentDataPath, layoutSong.ToString());
     }
 
-    private Layout CaptureLayout()
+    private SpatialLayout CaptureLayout()
     {
-        return new Layout { version = 2, song = layoutSong.ToString(), hallPreset = hallPreset, objects = Array.ConvertAll(stems,
-            s => new Entry { track = s.eventName, sourceSong = s.song.ToString(), position = s.emitter.transform.position, muted = s.muted }) };
+        return new SpatialLayout { version = 2, song = layoutSong.ToString(), hallPreset = hallPreset, objects = Array.ConvertAll(stems,
+            s => new SpatialLayout.Entry { track = s.eventName, sourceSong = s.song.ToString(), position = s.emitter.transform.position, muted = s.muted }) };
     }
 
-    private bool InstallLayout(Layout layout, Song song, bool append, bool sync = true)
+    private bool InstallLayout(SpatialLayout layout, Song song, bool append, bool sync = true)
     {
         var created = new List<Stem>();
         var ids = new List<uint>();
@@ -552,7 +536,7 @@ public sealed partial class SpatialStemPlayer : MonoBehaviour
                 throw new IOException(switchError);
             bool active = Array.Exists(playingIds, id => id != 0);
             int ms = active && sync ? Position() : 0;
-            foreach (Entry entry in layout.objects)
+            foreach (SpatialLayout.Entry entry in layout.objects)
             {
                 int t = entry == null ? -1 : Array.FindIndex(catalog, s => s.eventName == entry.track);
                 if (t < 0 || !Enum.TryParse(entry.sourceSong, out Song source) || !Enum.IsDefined(typeof(Song), source)
@@ -650,9 +634,9 @@ public sealed partial class SpatialStemPlayer : MonoBehaviour
         GUI.enabled = enabled && EventFor(template, layoutSong) != null;
         if (GUILayout.Button("新建空间音源"))
         {
-            var entry = new Entry { track = template.eventName, sourceSong = layoutSong.ToString(),
+            var entry = new SpatialLayout.Entry { track = template.eventName, sourceSong = layoutSong.ToString(),
                 position = Camera.main != null ? Camera.main.transform.position + Camera.main.transform.forward * 2 : Vector3.zero };
-            InstallLayout(new Layout { version = 1, song = layoutSong.ToString(), objects = new[] { entry } }, layoutSong, true);
+            InstallLayout(new SpatialLayout { version = 1, song = layoutSong.ToString(), objects = new[] { entry } }, layoutSong, true);
             GUIUtility.ExitGUI();
         }
         GUI.enabled = enabled;
@@ -685,15 +669,7 @@ public sealed partial class SpatialStemPlayer : MonoBehaviour
         {
             try
             {
-                string path = Path.GetFullPath(layoutPath);
-                string temp = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
-                try
-                {
-                    File.WriteAllText(temp, JsonUtility.ToJson(CaptureLayout(), true));
-                    if (File.Exists(path)) File.Replace(temp, path, null);
-                    else File.Move(temp, path);
-                }
-                finally { if (File.Exists(temp)) File.Delete(temp); }
+                CaptureLayout().Save(layoutPath);
                 switchError = "布局已保存。";
             }
             catch (Exception ex) { switchError = ex.Message; }
@@ -703,7 +679,7 @@ public sealed partial class SpatialStemPlayer : MonoBehaviour
             try
             {
 
-                InstallLayout(JsonUtility.FromJson<Layout>(File.ReadAllText(layoutPath)), layoutSong, false);
+                InstallLayout(SpatialLayout.Load(layoutPath), layoutSong, false);
             }
             catch (Exception ex) { switchError = ex.Message; }
 
