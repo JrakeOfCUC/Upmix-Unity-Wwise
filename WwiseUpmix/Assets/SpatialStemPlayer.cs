@@ -6,24 +6,23 @@ using UnityEngine;
 [DefaultExecutionOrder(100)]
 public sealed partial class SpatialStemPlayer : MonoBehaviour
 {
-    private enum Song
+    private readonly struct SongInfo
     {
-        [InspectorName("我不难过")] WoBuNanGuo,
-        [InspectorName("See You Again")] SeeYouAgain,
-        [InspectorName("光辉岁月")] GloriousYears,
-        [InspectorName("Smoke on the Water")] SmokeOnTheWater,
-        [InspectorName("Five Hundred Miles")] FiveHundredMiles,
-        [InspectorName("说散就散")] ShuoSanJiuSan,
-        [InspectorName("致爱丽丝")] FurElise,
-        [InspectorName("香山射鼓")] XiangShanSheGu
-    }
+        public readonly string Title;
+        public readonly int DurationMs;
+        public readonly string Bank;
+        public readonly string EventSuffix;
+        public readonly bool HasHarmony;
 
-    private static readonly string[] SongNames =
-        { "我不难过", "See You Again", "光辉岁月", "Smoke on the Water",
-          "Five Hundred Miles", "说散就散", "致爱丽丝", "香山射鼓" };
-    // Durations in milliseconds from the generated SoundBank event metadata.
-    private static readonly int[] SongLengths =
-        { 320400, 229525, 298560, 341426, 207453, 242625, 180240, 274239 };
+        public SongInfo(string title, int durationMs, string bank, string eventSuffix, bool hasHarmony)
+        {
+            Title = title;
+            DurationMs = durationMs;
+            Bank = bank;
+            EventSuffix = eventSuffix;
+            HasHarmony = hasHarmony;
+        }
+    }
 
     [SerializeField, InspectorName("启动歌曲")] private Song startupSong;
 
@@ -107,19 +106,19 @@ public sealed partial class SpatialStemPlayer : MonoBehaviour
 
     private static string EventFor(Stem stem, Song song)
     {
-        if (stem.eventName == "Play_Stem_Harmony" &&
-            (song == Song.FurElise || song == Song.XiangShanSheGu)) return null;
-        return song == Song.WoBuNanGuo ? stem.eventName : stem.eventName + "_" + song;
+        var info = Songs[(int)song];
+        if (stem.eventName == "Play_Stem_Harmony" && !info.HasHarmony) return null;
+        return info.EventSuffix.Length == 0 ? stem.eventName : stem.eventName + info.EventSuffix;
     }
 
     private bool LoadSong(Song song)
     {
         if (loadedBanks.ContainsKey(song)) return true;
-        string bank = song == Song.WoBuNanGuo ? "UpmixStems" : "Stems_" + song;
+        string bank = Songs[(int)song].Bank;
         var result = AkUnitySoundEngine.LoadBank(bank, out uint id);
         if (result != AKRESULT.AK_Success && result != AKRESULT.AK_BankAlreadyLoaded)
         {
-            switchError = $"无法加载《{SongNames[(int)song]}》：{result}";
+            switchError = $"无法加载《{Songs[(int)song].Title}》：{result}";
             Debug.LogError(switchError, this);
             return false;
         }
@@ -202,7 +201,7 @@ public sealed partial class SpatialStemPlayer : MonoBehaviour
         bool active = Array.Exists(playingIds, id => id != 0);
         int position = active && target != WholeSong ? Position() : 0;
         uint[] next = new uint[stems.Length];
-        if (position < 0 || position >= SongLengths[(int)song])
+        if (position < 0 || position >= Songs[(int)song].DurationMs)
             switchError = "无法在当前播放位置接入这条分轨。";
         for (int i = 0; active && switchError == null && i < stems.Length; i++)
         {
@@ -418,7 +417,7 @@ public sealed partial class SpatialStemPlayer : MonoBehaviour
         if (GUILayout.Button("暂停")) SetPaused(true);
         GUI.enabled = wasEnabled;
         GUILayout.EndHorizontal();
-        editing = GUILayout.Toggle(editing, "空间音源编辑 · " + SongNames[(int)layoutSong], GUI.skin.button);
+        editing = GUILayout.Toggle(editing, "空间音源编辑 · " + Songs[(int)layoutSong].Title, GUI.skin.button);
         if (editing && catalog != null)
         {
             DrawEditor();
@@ -431,14 +430,14 @@ public sealed partial class SpatialStemPlayer : MonoBehaviour
         {
             GUILayout.Label(picker == WholeSong ? "选择整首歌曲" : "选择分轨 · " + stems[picker].label);
             int position = active && picker != WholeSong ? Position() : 0;
-            for (int j = 0; j < SongNames.Length; j++)
+            for (int j = 0; j < Songs.Length; j++)
             {
                 if (j % 2 == 0) GUILayout.BeginHorizontal();
                 Song song = (Song)j;
                 GUI.enabled = wasEnabled && (picker == WholeSong ||
                     (picker >= 0 && EventFor(stems[picker], song) != null &&
-                     position >= 0 && position < SongLengths[j] && stems[picker].song != song));
-                if (GUILayout.Button(SongNames[j]))
+                     position >= 0 && position < Songs[j].DurationMs && stems[picker].song != song));
+                if (GUILayout.Button(Songs[j].Title))
                 {
                     SwitchSong(picker, song);
                     picker = PickerClosed;
@@ -467,7 +466,7 @@ public sealed partial class SpatialStemPlayer : MonoBehaviour
             var stem = stems[i];
             GUILayout.BeginHorizontal(GUILayout.Height(32f));
             GUILayout.Label(stem.label, GUILayout.Width(64f));
-            if (GUILayout.Button(SongNames[(int)stem.song], GUILayout.Width(130f))) picker = i;
+            if (GUILayout.Button(Songs[(int)stem.song].Title, GUILayout.Width(130f))) picker = i;
             if (EventFor(stem, stem.song) == null)
             {
                 GUILayout.Label("本曲无此分轨");
@@ -577,7 +576,7 @@ public sealed partial class SpatialStemPlayer : MonoBehaviour
                 ids.Add(id);
                 if (active && evt != null)
                 {
-                    if (id == 0 || ms < 0 || ms >= SongLengths[(int)source] || (ms > 0 &&
+                    if (id == 0 || ms < 0 || ms >= Songs[(int)source].DurationMs || (ms > 0 &&
                         AkUnitySoundEngine.SeekOnEvent(evt, stem.emitter, ms, false, id) != AKRESULT.AK_Success))
                         throw new IOException("无法将音源同步到当前播放位置。");
                     if (paused) AkUnitySoundEngine.ExecuteActionOnPlayingID(AkActionOnEventType.AkActionOnEventType_Pause, id);

@@ -7,17 +7,13 @@ import sys
 import uuid
 import xml.etree.ElementTree as ET
 from wwise_work_unit import guid, effect_slot
+from song_catalog import SONGS
 from spatial_hall_banks import configure_spatial_hall
 
 ROOT = Path(__file__).resolve().parent
 BUILD = ROOT / 'WwiseUpmix/Library/SongBankBuild'
 DEST = ROOT / 'WwiseUpmix/Assets/StreamingAssets/Audio/GeneratedSoundBanks'
 PLATFORMS = ('Windows', 'Mac')
-SONGS = {
-    'SeeYouAgain': 'See You Again', 'GloriousYears': '光辉岁月',
-    'SmokeOnTheWater': 'Smoke on the Water', 'FiveHundredMiles': 'Five Hundred Miles',
-    'ShuoSanJiuSan': '说散就散', 'FurElise': '《致爱丽丝》', 'XiangShanSheGu': '香山射鼓',
-}
 
 
 def property_value(props, name, kind, value):
@@ -113,12 +109,14 @@ def build_song_banks(source, console):
     units = [BUILD / category / 'UpmixStems.wwu' for category in ('Containers', 'Events', 'SoundBanks')]
     trees = [ET.parse(unit) for unit in units]
     sounds, events, banks = [tree.find('.//WorkUnit/ChildrenList') for tree in trees]
-    bank_names = ['UpmixStems']
+    bank_names = [SONGS[0].bank]
     folders = sorted({p.parent for p in (ROOT / '音源分离 (1).zip').rglob('*.wav')})
-    for song, title in SONGS.items():
+    for entry in SONGS[1:]:
+        song = entry.key
+        title = entry.folder_title or entry.title
         folder, = [p for p in folders if title in p.name]
         bank = copy.deepcopy(banks[0])
-        bank_name = 'Stems_' + song
+        bank_name = entry.bank
         bank_names.append(bank_name)
         bank.attrib.update(Name=bank_name, ID=guid(bank_name))
         inclusions = bank.find('ObjectInclusionList')
@@ -132,7 +130,7 @@ def build_song_banks(source, console):
                 raise ValueError(f'Duplicate {role} in {folder}')
             roles.add(role)
             template = 'Stem_' + role
-            name = template + '_' + song
+            name = template + entry.suffix
             sound = copy.deepcopy(sounds.find(f"Sound[@Name='{template}']"))
             sound.attrib.update(Name=name, ID=guid(name))
             src = sound.find('.//AudioFileSource')
@@ -154,7 +152,7 @@ def build_song_banks(source, console):
             ref.attrib.update(event.attrib)
             inclusions.append(ref)
         expected = {'Vocal','Bass','Drums','Guitar','Piano','Other','Instrumental'}
-        if song not in ('FurElise', 'XiangShanSheGu'):
+        if entry.harmony:
             expected.add('Harmony')
         if roles != expected:
             raise ValueError((song, roles, expected))

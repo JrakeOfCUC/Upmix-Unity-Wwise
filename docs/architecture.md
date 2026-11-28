@@ -30,7 +30,7 @@ The inspected application entry points expose local files and native audio servi
 ## Open work by dependency
 
 1. Pin layout v1/v2 round trips, invalid input and playback rollback with the Unity smoke harness before separating layout persistence and editor UI from SpatialStemPlayer. Preserve serialized field names, enum ordinals, GUIDs and reflection entry points.
-2. Song titles, durations and song IDs use parallel runtime tables. Bank generation additionally encodes localized input-folder names and absent harmony. Establish the exact catalog contract before consolidating. Folder names can differ from display titles.
+2. Completed song catalog migration. Edit SONGS in song_catalog.py and run python song_catalog.py. It projects stable scene ordinals and one typed record per song into the player. Bank generation consumes the same entries directly. CI checks the projection and existing persisted identifiers.
 3. Stage and return coordinates appear in the design renderer and runtime preset. Establish a tested build-time mapping that keeps design-only and runtime save formats separate.
 4. Bank generation reuses a mutable Library directory. Exercise stale output, interrupted copy and concurrent runs against independent staging directories before changing publication semantics.
 5. Native send layout, device selection, callback ordering and audio quality require actual platform checks. Record Windows and macOS results separately. Defer changes to room voicing, song availability or output device fallback to a product decision.
