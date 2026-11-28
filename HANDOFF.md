@@ -1,5 +1,7 @@
 # Cross-device handoff
 
+Spatial layout design (2026-11-28): see `docs/spatial-layout/README.md` on branch `codex/spatial-layout-design` for the coordinate manifest, literature rationale, and PNG/SVG overview. This is a design-only proposal; scene and audio runtime behavior are unchanged. The JSON is not a runtime layout import file.
+
 Open `WwiseUpmix` in Unity 2022.3.62f3c1. This snapshot includes project source, scenes, settings, package manifests, Wwise integration source, and the bank-generation script.
 
 Wwise integration: 2025.1.8.4193, SDK 2025.1.8 build 9170. Install matching Wwise platform binaries on each device; native libraries and debug symbols are excluded from this source snapshot.
