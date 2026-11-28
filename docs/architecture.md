@@ -46,3 +46,5 @@ Single-track switching now replaces just the selected playing ID. It shares post
 SourceMap owns IMGUI map styles, listener-relative projection, numbering and legend labels. Startup and layout refresh rebuild its labels through one method. The layout selection grid reads the same legend. A headless Windows native smoke run passed after extraction; pixel-level rendering was not measured.
 
 LoadedSoundBank owns the success/borrow/failure interpretation and conditional unload for song, hall and macOS channel-check banks. HallSendBuffer cleanup now runs even after the sound engine has stopped. The native Windows test loaded an unused song bank twice, disposed the borrower, verified the bank was still loaded, then disposed the owner and verified a fresh load succeeded.
+
+Layout installation resolves every catalog reference, source song and position before creating native returns or posting audio. A Windows regression test initially failed on a layout whose final entry referenced an unknown song. It passed after the fix and verifies the original layout, ordered playback IDs and return resources on rejection.

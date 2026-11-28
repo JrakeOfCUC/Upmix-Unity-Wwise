@@ -436,38 +436,53 @@ public sealed partial class SpatialStemPlayer : MonoBehaviour
             s => new SpatialLayout.Entry { track = s.eventName, sourceSong = s.song.ToString(), position = s.emitter.transform.position, muted = s.muted }) };
     }
 
+    private Stem[] ResolveLayout(SpatialLayout layout, Song song, bool sync)
+    {
+        if (layout == null || (layout.version != 1 && layout.version != 2) || layout.song != song.ToString() || layout.objects == null)
+            throw new InvalidDataException("布局版本或所属曲目不匹配。");
+        var resolved = new Stem[layout.objects.Length];
+        for (int i = 0; i < resolved.Length; i++)
+        {
+            var entry = layout.objects[i];
+            int t = entry == null ? -1 : Array.FindIndex(catalog, s => s.eventName == entry.track);
+            if (t < 0 || !Enum.TryParse(entry.sourceSong, out Song source) || !Enum.IsDefined(typeof(Song), source)
+                || float.IsNaN(entry.position.sqrMagnitude) || float.IsInfinity(entry.position.sqrMagnitude))
+                throw new InvalidDataException("布局含有无效的音轨或坐标。");
+            Stem stem = catalog[t];
+            if (!sync)
+            {
+                int previous = Array.FindIndex(stems, s => s.eventName == entry.track);
+                if (previous >= 0) stem = stems[previous];
+            }
+            stem.emitter = catalog[t].emitter;
+            stem.song = source;
+            if (layout.version == 2) stem.muted = entry.muted;
+            resolved[i] = stem;
+        }
+        return resolved;
+    }
+
     private bool InstallLayout(SpatialLayout layout, Song song, bool append, bool sync = true)
     {
         var created = new List<Stem>();
         var ids = new List<uint>();
+        bool hadHall = hallReturns != null;
         try
         {
-            if (layout == null || (layout.version != 1 && layout.version != 2) || layout.song != song.ToString() || layout.objects == null)
-                throw new InvalidDataException("布局版本或所属曲目不匹配。");
+            Stem[] resolved = ResolveLayout(layout, song, sync);
             if (!append && layout.version == 2 && layout.hallPreset && !PrepareHall())
                 throw new IOException(switchError);
             bool active = Array.Exists(playingIds, id => id != 0);
             int ms = active && sync ? Position() : 0;
-            foreach (SpatialLayout.Entry entry in layout.objects)
+            for (int i = 0; i < resolved.Length; i++)
             {
-                int t = entry == null ? -1 : Array.FindIndex(catalog, s => s.eventName == entry.track);
-                if (t < 0 || !Enum.TryParse(entry.sourceSong, out Song source) || !Enum.IsDefined(typeof(Song), source)
-                    || float.IsNaN(entry.position.sqrMagnitude) || float.IsInfinity(entry.position.sqrMagnitude))
-                    throw new InvalidDataException("布局含有无效的音轨或坐标。");
-                Stem stem = catalog[t];
-                if (!sync)
-                {
-                    int previous = Array.FindIndex(stems, s => s.eventName == entry.track);
-                    if (previous >= 0) stem = stems[previous];
-                }
-                stem.emitter = catalog[t].emitter;
-                stem.song = source;
-                if (layout.version == 2) stem.muted = entry.muted;
+                Stem stem = resolved[i];
+                Song source = stem.song;
                 string evt = EventFor(stem, source);
                 if (evt != null && !LoadSong(source)) throw new IOException(switchError);
-                stem.emitter = Instantiate(stem.emitter, entry.position, stem.emitter.transform.rotation, transform);
-                stem.emitter.SetActive(true);
+                stem.emitter = Instantiate(stem.emitter, layout.objects[i].position, stem.emitter.transform.rotation, transform);
                 created.Add(stem);
+                stem.emitter.SetActive(true);
                 uint id = 0;
                 bool posted = !active || evt == null || TryPostAt(stem, source, ms, out id);
                 ids.Add(id);
@@ -478,6 +493,7 @@ public sealed partial class SpatialStemPlayer : MonoBehaviour
         {
             StopIds(ids.ToArray());
             foreach (var s in created) Destroy(s.emitter);
+            if (!hadHall && hallReturns != null) DisposeHall();
             switchError = ex.Message;
             ReleaseUnusedBanks();
             return false;

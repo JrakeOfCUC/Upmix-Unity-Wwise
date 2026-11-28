@@ -61,6 +61,19 @@ public class HallPresetSmoke
         var song = Field(player, "layoutSong");
         object initial = Call(player, "CaptureLayout");
         var preset = Call(player, "MakeHallLayout", song);
+        var invalid = JsonUtility.FromJson(JsonUtility.ToJson(preset), preset.GetType());
+        var invalidEntries = (Array)invalid.GetType().GetField("objects").GetValue(invalid);
+        var lastEntry = invalidEntries.GetValue(invalidEntries.Length - 1);
+        lastEntry.GetType().GetField("sourceSong").SetValue(lastEntry, "UnknownSong");
+        var originalIds = (uint[])((uint[])Field(player, "playingIds")).Clone();
+        Require(!(bool)Call(player, "InstallLayout", invalid, song, false, true), "Invalid layout was accepted");
+        Require(JsonUtility.ToJson(Call(player, "CaptureLayout")) == JsonUtility.ToJson(initial),
+            "Rejected layout changed live objects");
+        var liveIds = (uint[])Field(player, "playingIds");
+        Require(originalIds.Length == liveIds.Length, "Rejected layout changed playback count");
+        for (int i = 0; i < originalIds.Length; i++)
+            Require(originalIds[i] == liveIds[i], "Rejected layout replaced a live playback ID");
+        Require(Field(player, "hallReturns") == null, "Rejected layout allocated hall returns");
         Require((bool)Call(player, "InstallLayout", preset, song, false, true), "Apply failed: " + Field(player, "switchError"));
         Pump();
         Require((bool)Field(player, "hallPreset"), "Preset flag not set");
