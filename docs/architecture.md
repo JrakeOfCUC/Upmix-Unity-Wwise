@@ -44,3 +44,5 @@ SpatialLayout owns the v1/v2 field schema, per-song filename and atomic file rep
 Single-track switching now replaces just the selected playing ID. It shares post/seek/pause and unused-bank cleanup with layout installation. The Windows smoke test exercises a paused track replacement and checks its neighbor before the full-song switch.
 
 SourceMap owns IMGUI map styles, listener-relative projection, numbering and legend labels. Startup and layout refresh rebuild its labels through one method. The layout selection grid reads the same legend. A headless Windows native smoke run passed after extraction; pixel-level rendering was not measured.
+
+LoadedSoundBank owns the success/borrow/failure interpretation and conditional unload for song, hall and macOS channel-check banks. HallSendBuffer cleanup now runs even after the sound engine has stopped. The native Windows test loaded an unused song bank twice, disposed the borrower, verified the bank was still loaded, then disposed the owner and verified a fresh load succeeded.

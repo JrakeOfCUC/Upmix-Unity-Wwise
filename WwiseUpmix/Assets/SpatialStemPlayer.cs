@@ -47,8 +47,7 @@ public sealed partial class SpatialStemPlayer : MonoBehaviour
     private readonly SourceMap sourceMap = new SourceMap();
     public bool MixerOpen { get; set; }
     private Vector2 mixerScroll;
-    private readonly Dictionary<Song, uint> loadedBanks = new Dictionary<Song, uint>();
-    private readonly HashSet<Song> ownedBanks = new HashSet<Song>();
+    private readonly Dictionary<Song, LoadedSoundBank> loadedBanks = new Dictionary<Song, LoadedSoundBank>();
     private const int WholeSong = -1;
     private const int PickerClosed = -2;
     private int picker = PickerClosed;
@@ -61,9 +60,7 @@ public sealed partial class SpatialStemPlayer : MonoBehaviour
     private bool bypassEffects;
     private bool bypassRoom;
 #if UNITY_STANDALONE_OSX && !UNITY_EDITOR
-    private uint checkBankId;
-    private bool ownsCheckBank;
-    private bool checkBankReady;
+    private LoadedSoundBank checkBank;
     private uint checkId;
     private float checkStarted;
     private readonly MacOutputSelector outputSelector = new MacOutputSelector();
@@ -89,9 +86,7 @@ public sealed partial class SpatialStemPlayer : MonoBehaviour
         UpdateLayoutPath();
         playingIds = new uint[stems.Length];
 #if UNITY_STANDALONE_OSX && !UNITY_EDITOR
-        var checkResult = AkUnitySoundEngine.LoadBank("MTRX714_Check", out checkBankId);
-        ownsCheckBank = checkResult == AKRESULT.AK_Success;
-        checkBankReady = ownsCheckBank || checkResult == AKRESULT.AK_BankAlreadyLoaded;
+        checkBank = LoadedSoundBank.Load("MTRX714_Check", out _);
         MixerOpen = true;
 #else
         if (LoadSong(startupSong)) PlayFromStart();
@@ -108,23 +103,20 @@ public sealed partial class SpatialStemPlayer : MonoBehaviour
     private bool LoadSong(Song song)
     {
         if (loadedBanks.ContainsKey(song)) return true;
-        string bank = Songs[(int)song].Bank;
-        var result = AkUnitySoundEngine.LoadBank(bank, out uint id);
-        if (result != AKRESULT.AK_Success && result != AKRESULT.AK_BankAlreadyLoaded)
+        var bank = LoadedSoundBank.Load(Songs[(int)song].Bank, out var result);
+        if (bank == null)
         {
             switchError = $"无法加载《{Songs[(int)song].Title}》：{result}";
             Debug.LogError(switchError, this);
             return false;
         }
-        loadedBanks.Add(song, id);
-        if (result == AKRESULT.AK_Success) ownedBanks.Add(song);
+        loadedBanks.Add(song, bank);
         return true;
     }
 
     private void ReleaseBank(Song song)
     {
-        if (ownedBanks.Remove(song))
-            AkUnitySoundEngine.UnloadBank(loadedBanks[song], IntPtr.Zero);
+        loadedBanks[song].Dispose();
         loadedBanks.Remove(song);
     }
 
@@ -309,7 +301,7 @@ public sealed partial class SpatialStemPlayer : MonoBehaviour
         bool wasEnabled = GUI.enabled;
 #if UNITY_STANDALONE_OSX && !UNITY_EDITOR
         outputSelector.Draw(checkId == 0);
-        GUI.enabled = wasEnabled && checkBankReady && checkId == 0;
+        GUI.enabled = wasEnabled && checkBank != null && checkId == 0;
         if (GUILayout.Button("测试 12 路音箱 · 每秒一路"))
         {
             if (active && !paused) SetPaused(true);
@@ -318,7 +310,7 @@ public sealed partial class SpatialStemPlayer : MonoBehaviour
                 (uint)AkCallbackType.AK_EndOfEvent, OnCheckEnded, null);
         }
         GUI.enabled = wasEnabled;
-        if (!checkBankReady) GUILayout.Label("测试音库未加载");
+        if (checkBank == null) GUILayout.Label("测试音库未加载");
         if (checkId != 0)
         {
             int index = Mathf.Clamp((int)(Time.realtimeSinceStartup - checkStarted), 0, 11);
@@ -610,15 +602,13 @@ public sealed partial class SpatialStemPlayer : MonoBehaviour
 
     private void OnDestroy()
     {
-        if (!AkUnitySoundEngine.IsInitialized()) return;
         DisposeHall();
+        bool initialized = AkUnitySoundEngine.IsInitialized();
 #if UNITY_STANDALONE_OSX && !UNITY_EDITOR
-        if (checkId != 0) AkUnitySoundEngine.StopPlayingID(checkId);
-        if (ownsCheckBank) AkUnitySoundEngine.UnloadBank(checkBankId, IntPtr.Zero);
+        if (initialized && checkId != 0) AkUnitySoundEngine.StopPlayingID(checkId);
+        checkBank?.Dispose();
 #endif
-        if (playingIds != null)
-            foreach (var id in playingIds)
-                if (id != 0) AkUnitySoundEngine.StopPlayingID(id);
+        if (initialized && playingIds != null) StopIds(playingIds);
         foreach (Song song in new List<Song>(loadedBanks.Keys)) ReleaseBank(song);
     }
 #if UNITY_STANDALONE_OSX && !UNITY_EDITOR

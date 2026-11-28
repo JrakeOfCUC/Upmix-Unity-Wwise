@@ -34,10 +34,29 @@ public class HallPresetSmoke
         yield return new ExitPlayMode();
     }
 
+    private static void VerifyBankOwnership(SpatialStemPlayer player)
+    {
+        // Select a bank outside the scene's current playback set.
+        string bank = Field(player, "layoutSong").ToString() == "FurElise" ? "Stems_GloriousYears" : "Stems_FurElise";
+        var load = player.GetType().Assembly.GetType("LoadedSoundBank").GetMethod("Load");
+        object[] args = { bank, null };
+        using (var owner = (IDisposable)load.Invoke(null, args))
+        {
+            Require((AKRESULT)args[1] == AKRESULT.AK_Success, "Expected a fresh bank load");
+            using (var borrower = (IDisposable)load.Invoke(null, args))
+                Require((AKRESULT)args[1] == AKRESULT.AK_BankAlreadyLoaded, "Expected a borrowed bank");
+            using (var probe = (IDisposable)load.Invoke(null, args))
+                Require((AKRESULT)args[1] == AKRESULT.AK_BankAlreadyLoaded, "Borrower released the owner's bank");
+        }
+        using (var probe = (IDisposable)load.Invoke(null, args))
+            Require((AKRESULT)args[1] == AKRESULT.AK_Success, "Owner did not release the bank");
+    }
+
     private static void Verify()
     {
         Require(AkUnitySoundEngine.IsInitialized(), "Wwise initialization failed");
         var player = UnityEngine.Object.FindObjectOfType<SpatialStemPlayer>();
+        VerifyBankOwnership(player);
         Pump();
         var song = Field(player, "layoutSong");
         object initial = Call(player, "CaptureLayout");

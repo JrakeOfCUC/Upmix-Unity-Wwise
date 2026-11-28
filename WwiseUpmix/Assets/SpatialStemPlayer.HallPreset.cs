@@ -6,8 +6,8 @@ public sealed partial class SpatialStemPlayer
 {
     // Energy-normalized late sends (four side/rear + two quieter height returns).
     private static readonly float[] HallReturnGains = { .7f, .7f, .45f, .45f, .45f, .45f, .3f, .3f };
-    private bool hallPreset, ownsHallBank;
-    private uint hallBank;
+    private bool hallPreset;
+    private LoadedSoundBank hallBank;
     private float initialMinimapRadius;
     private GameObject[] hallReturns;
     private HallSendBuffer hallSends;
@@ -47,13 +47,12 @@ public sealed partial class SpatialStemPlayer
     {
         if (hallReturns != null) return true;
         if (Camera.main == null) { switchError = "未找到主摄像机。"; return false; }
-        var result = AkUnitySoundEngine.LoadBank("SpatialHallPreset", out hallBank);
-        if (result != AKRESULT.AK_Success && result != AKRESULT.AK_BankAlreadyLoaded)
+        hallBank = LoadedSoundBank.Load("SpatialHallPreset", out var result);
+        if (hallBank == null)
         {
             switchError = "音乐厅预设音库未就绪，请重新生成 SoundBank：" + result;
             return false;
         }
-        ownsHallBank = result == AKRESULT.AK_Success;
         hallReturns = new GameObject[HallReturns.Length];
         try
         {
@@ -106,8 +105,8 @@ public sealed partial class SpatialStemPlayer
         hallSends = null;
         if (hallReturns != null) foreach (var node in hallReturns) if (node != null) Destroy(node);
         hallReturns = null;
-        if (ownsHallBank) AkUnitySoundEngine.UnloadBank(hallBank, IntPtr.Zero);
-        ownsHallBank = false;
+        hallBank?.Dispose();
+        hallBank = null;
     }
 
     // Wwise's Unity AkAuxSendArray is capped at four entries. The SDK accepts a variable-size
