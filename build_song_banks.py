@@ -9,7 +9,8 @@ import sys
 import tempfile
 import uuid
 import xml.etree.ElementTree as ET
-from wwise_work_unit import guid, effect_slot
+from wwise_work_unit import guid
+from stem_effects import configure_effects
 from song_catalog import SONGS
 from spatial_hall_banks import configure_spatial_hall
 
@@ -17,75 +18,6 @@ ROOT = Path(__file__).resolve().parent
 BUILD = ROOT / 'WwiseUpmix/Library/SongBankBuild'
 DEST = ROOT / 'WwiseUpmix/Assets/StreamingAssets/Audio/GeneratedSoundBanks'
 PLATFORMS = ('Windows', 'Mac')
-
-
-def property_value(props, name, kind, value):
-    ET.SubElement(props, 'Property', Name=name, Type=kind, Value=str(value))
-
-
-def configure_effects(build, sounds, banks):
-    param_path = build / 'Game Parameters/Default Work Unit.wwu'
-    params = ET.parse(param_path)
-    unit = params.find('.//WorkUnit')
-    children = unit.find('ChildrenList')
-    if children is None:
-        children = ET.SubElement(unit, 'ChildrenList')
-    bands = [('StemEQLow', 160, 4), ('StemEQMid', 1200, 6), ('StemEQHigh', 6000, 5)]
-    for name, _, _ in bands:
-        param = ET.SubElement(children, 'GameParameter', Name=name, ID=guid(name))
-        props = ET.SubElement(param, 'PropertyList')
-        property_value(props, 'Min', 'Real64', -12)
-        property_value(props, 'Max', 'Real64', 12)
-    params.write(param_path, encoding='utf-8', xml_declaration=True)
-    for sound in sounds.findall('Sound'):
-        key = sound.get('Name') + '/EQ'
-        property_value(sound.find('PropertyList'), 'UseGameAuxSends', 'bool', 'True')
-        eq = ET.Element('Effect', Name=sound.get('Name') + '_EQ', ID=guid(key), PluginName='Wwise Parametric EQ',
-                        CompanyID='0', PluginID='105', PluginType='3')
-        props = ET.SubElement(eq, 'PropertyList')
-        links = ET.SubElement(ET.SubElement(eq, 'ObjectLists'), 'ObjectList', Name='RTPC')
-        for i, (name, hz, filter_type) in enumerate(bands, 1):
-            property_value(props, f'FilterTypeBand{i}', 'int32', filter_type)
-            property_value(props, f'FrequencyBand{i}', 'Real32', hz)
-            property_value(props, f'OnOffBand{i}', 'bool', 'True')
-            link = ET.SubElement(links, 'RTPC', Name='', ID=guid(key + name))
-            property_value(ET.SubElement(link, 'PropertyList'), 'PropertyName', 'string', f'GainBand{i}')
-            refs = ET.SubElement(link, 'ReferenceList')
-            control = ET.SubElement(refs, 'Reference', Name='ControlInput')
-            ET.SubElement(control, 'ObjectRef', Name=name, ID=guid(name), WorkUnitID=unit.get('ID'))
-            custom = ET.SubElement(ET.SubElement(refs, 'Reference', Name='Curve'), 'Custom')
-            curve = ET.SubElement(custom, 'Curve', Name='', ID=guid(key + name + '/curve'))
-            property_value(ET.SubElement(curve, 'PropertyList'), 'Flags', 'int32', 3)
-            points = ET.SubElement(curve, 'PointList')
-            for value, flags in [(-12, 5), (12, 37)]:
-                point = ET.SubElement(points, 'Point')
-                for tag, number in [('XPos', value), ('YPos', value), ('Flags', flags)]:
-                    ET.SubElement(point, tag).text = str(number)
-        effect_slot(sound, eq, guid(sound.get('Name') + '/slot'))
-
-    bus_path = build / 'Busses/Default Work Unit.wwu'
-    buses = ET.parse(bus_path)
-    main = buses.find(".//Bus[@Name='Main Audio Bus']")
-    children = main.find('ChildrenList')
-    if children is None:
-        children = ET.SubElement(main, 'ChildrenList')
-    factory = ET.parse(build / 'Effects/Factory Effects.wwu')
-    for name, preset in [('StemSmallRoom', 'Room_Small'), ('StemHall', 'Hall_Medium')]:
-        bus = ET.SubElement(children, 'AuxBus', Name=name, ID=guid(name))
-        verb = copy.deepcopy(factory.find(f".//Effect[@Name='{preset}'][@PluginName='Wwise RoomVerb']"))
-        verb.set('ID', guid(name + '/verb'))
-        verb.set('Name', name + '_RoomVerb')
-        props = verb.find('PropertyList')
-        dry = props.find("Property[@Name='DryLevel']")
-        if dry is None:
-            property_value(props, 'DryLevel', 'Real32', -96)
-        else:
-            dry.set('Value', '-96')
-        effect_slot(bus, verb, guid(name + '/slot'))
-        for bank in banks:
-            ET.SubElement(bank.find('ObjectInclusionList'), 'ObjectRef', Name=name, ID=guid(name),
-                          WorkUnitID=buses.getroot().get('ID'), Origin='Manual', Filter='7')
-    buses.write(bus_path, encoding='utf-8', xml_declaration=True)
 
 
 def role_of(path):

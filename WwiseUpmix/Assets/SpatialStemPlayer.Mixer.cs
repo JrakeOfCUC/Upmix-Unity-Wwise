@@ -9,7 +9,6 @@ public sealed partial class SpatialStemPlayer
     private const int PickerClosed = -2;
     private int picker = PickerClosed;
     private int effectsRow = -1;
-    private static readonly string[] RoomNames = { "小房间", "音乐厅" };
     private bool editing;
     private int sourceTrack, selected;
     private Vector2 editorScroll;
@@ -101,7 +100,7 @@ public sealed partial class SpatialStemPlayer
         bool bypass = GUILayout.Toggle(bypassEffects, "旁通全部效果", GUI.skin.button);
         bool roomOff = GUILayout.Toggle(bypassRoom, "旁通混响", GUI.skin.button);
         GUI.enabled = wasEnabled && !hallPreset;
-        int preset = GUILayout.Toolbar(roomPreset, RoomNames);
+        int preset = GUILayout.Toolbar(roomPreset, StemEffects.RoomLabels);
         GUI.enabled = wasEnabled;
         GUILayout.EndHorizontal();
         if (hallPreset) GUILayout.Label("音乐厅 B · 2 路早反射 + 6 路空间混响");
@@ -131,10 +130,10 @@ public sealed partial class SpatialStemPlayer
             {
                 var send = EffectSlider("混响发送量", stem.roomSend, 0, 1, true);
                 bool eqOff = GUILayout.Toggle(stem.bypassEq, "旁通此轨 EQ");
-                Vector3 eq = new Vector3(
-                    EffectSlider("低频   160 Hz", stem.eqDb.x, -12, 12),
-                    EffectSlider("中频   1.2 kHz", stem.eqDb.y, -12, 12),
-                    EffectSlider("高频   6 kHz", stem.eqDb.z, -12, 12));
+                Vector3 eq = stem.eqDb;
+                for (int band = 0; band < StemEffects.EqBands.Length; band++)
+                    eq[band] = EffectSlider(StemEffects.EqBands[band].Label, eq[band],
+                        StemEffects.MinDb, StemEffects.MaxDb);
                 if (GUILayout.Button("均衡器归零")) eq = Vector3.zero;
                 changed |= eq != stem.eqDb || eqOff != stem.bypassEq || send != stem.roomSend;
                 stems[i].roomSend = send;

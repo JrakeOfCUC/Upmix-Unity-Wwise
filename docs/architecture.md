@@ -52,3 +52,5 @@ Layout installation resolves every catalog reference, source song and position b
 A live stem owns its Wwise playing ID. Layout append, removal, replacement, seek and end-of-event callbacks use this same record. The scene continues to serialize only the emitter and event name. The Windows smoke test confirms append/remove preserves all neighboring IDs.
 
 The mixer partial owns IMGUI events, picker and scroll state, and layout editor controls. MacOutputSelector owns channel-check playback and output selection. The transport owns pause policy. Unity built the macOS standalone application including Assembly-CSharp and the native plugin bundle, and the Windows Editor native smoke passed.
+
+stem_effects.py owns EQ RTPC names, frequencies, filter modes, gain limits and room presets. Its generated StemEffects.cs binds both mix controls and Wwise parameter writes. The final native smoke passed and all 20 generated banks again matched the original hardware checkout by SHA-256.

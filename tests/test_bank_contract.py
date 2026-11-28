@@ -110,3 +110,11 @@ class BuildIsolationContract(unittest.TestCase):
                 with self.assertRaises(FileNotFoundError):
                     song.generate_and_publish(build, 'project.wproj', 'console', [], destination)
             self.assertFalse(destination.exists())
+
+
+class MixerBindingContract(unittest.TestCase):
+    def test_unity_controls_match_authored_effects(self):
+        from stem_effects import EQ_BANDS, UNITY_SOURCE, unity_source
+        # The serialized-in-memory EQ state uses the three components of a Vector3.
+        self.assertEqual(len(EQ_BANDS), 3)
+        self.assertEqual(UNITY_SOURCE.read_text(encoding="utf-8"), unity_source())

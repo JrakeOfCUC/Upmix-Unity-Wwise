@@ -229,9 +229,8 @@ public sealed partial class SpatialStemPlayer : MonoBehaviour
                 Debug.LogWarning($"Could not set {stem.eventName} gain: {result}", this);
             if (!loadedBanks.ContainsKey(stem.song) || EventFor(stem, stem.song) == null) continue;
             var eq = bypassEffects || stem.bypassEq ? Vector3.zero : stem.eqDb;
-            SetBand(stem.emitter, "StemEQLow", eq.x);
-            SetBand(stem.emitter, "StemEQMid", eq.y);
-            SetBand(stem.emitter, "StemEQHigh", eq.z);
+            for (int band = 0; band < StemEffects.EqBands.Length; band++)
+                SetBand(stem.emitter, StemEffects.EqBands[band].Parameter, eq[band]);
             send.Reset();
             if (hallPreset)
             {
@@ -242,7 +241,7 @@ public sealed partial class SpatialStemPlayer : MonoBehaviour
                 continue;
             }
             if (!bypassEffects && !bypassRoom && gain * stem.roomSend > 0f)
-                send.Add(listener, AkUnitySoundEngine.GetIDFromString(roomPreset == 0 ? "StemSmallRoom" : "StemHall"),
+                send.Add(listener, AkUnitySoundEngine.GetIDFromString(StemEffects.RoomBuses[roomPreset]),
                     gain * stem.roomSend);
             var sendResult = send.SetValues(stem.emitter);
             if (sendResult != AKRESULT.AK_Success)
