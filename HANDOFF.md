@@ -11,3 +11,5 @@ Audio inputs in `音源分离`, generated SoundBanks, build outputs, SDK archive
 This is a progress snapshot, not a verified standalone playable distribution. Unity compilation and playback have not been validated during this synchronization.
 
 Before changing code: fetch, inspect status and pull --ff-only on a clean branch. After a task: validate, commit, push and verify the remote commit. Use separate branches for simultaneous work across devices.
+
+For module ownership, migration decisions, validation and open work, see [the architecture map](docs/architecture.md).
